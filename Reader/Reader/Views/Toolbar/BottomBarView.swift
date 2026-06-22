@@ -6,34 +6,36 @@ struct BottomBarView: View {
     let themeManager: ThemeManager
 
     var body: some View {
-        HStack {
-            Text("第 \(coordinator.currentChapter + 1)/\(coordinator.tocEntries.count) 章")
-                .font(.caption)
-                .foregroundStyle(themeManager.currentTheme.secondaryText)
+        HStack(spacing: 8) {
+            if coordinator.totalChapters > 0 {
+                Text("第 \(coordinator.currentChapter + 1)/\(coordinator.totalChapters) 章")
+                    .font(.caption2)
+                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+            }
 
             Spacer()
 
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: 1.5)
                         .fill(themeManager.currentTheme.border)
-                        .frame(height: 3)
+                        .frame(height: 2)
 
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: 1.5)
                         .fill(themeManager.currentTheme.accent)
-                        .frame(width: geometry.size.width * coordinator.progress, height: 3)
+                        .frame(width: geometry.size.width * coordinator.progress, height: 2)
                 }
             }
-            .frame(width: 120)
-
-            Spacer()
+            .frame(width: 80)
 
             Text("\(Int(coordinator.progress * 100))%")
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(themeManager.currentTheme.secondaryText)
+                .frame(width: 32, alignment: .trailing)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .frame(height: 24)
         .background(themeManager.currentTheme.sidebarBG)
         .overlay(alignment: .top) {
             Divider().background(themeManager.currentTheme.border)

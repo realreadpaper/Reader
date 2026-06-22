@@ -3,36 +3,56 @@ import PDFKit
 
 struct PDFRendererView: View {
     let book: Book
-    @Binding var progress: Double
+    let coordinator: RenderCoordinator
     let themeManager: ThemeManager
 
     var body: some View {
-        PDFKitView(url: URL(fileURLWithPath: book.filePath), progress: $progress)
+        PDFKitView(
+            url: URL(fileURLWithPath: book.filePath),
+            coordinator: coordinator
+        )
     }
 }
 
 struct PDFKitView: NSViewRepresentable {
     let url: URL
-    @Binding var progress: Double
+    let coordinator: RenderCoordinator
 
     func makeNSView(context: Context) -> PDFView {
         let pdfView = PDFView()
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
+        pdfView.delegate = context.coordinator
 
         if let document = PDFDocument(url: url) {
             pdfView.document = document
+            coordinator.loadPDF()
         }
 
         return pdfView
     }
 
-    func updateNSView(_ pdfView: PDFView, context: Context) {
-        if let document = pdfView.document, let page = pdfView.currentPage {
-            let pageIndex = document.index(for: page)
-            let totalPages = document.pageCount
-            progress = totalPages > 0 ? Double(pageIndex) / Double(totalPages) : 0
+    func updateNSView(_ pdfView: PDFView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(coordinator: coordinator)
+    }
+
+    class Coordinator: NSObject, PDFViewDelegate {
+        let coordinator: RenderCoordinator
+        private var lastPageIndex: Int = -1
+
+        init(coordinator: RenderCoordinator) {
+            self.coordinator = coordinator
+        }
+
+        func pdfView(_ pdfView: PDFView, willChangePageTo pageIndex: Int) {
+            guard pageIndex != lastPageIndex else { return }
+            lastPageIndex = pageIndex
+
+            let totalPages = pdfView.document?.pageCount ?? 0
+            coordinator.updatePDFProgress(currentPage: pageIndex, totalPages: totalPages)
         }
     }
 }

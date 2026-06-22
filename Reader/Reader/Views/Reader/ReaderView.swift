@@ -30,7 +30,8 @@ struct ReaderView: View {
                 if coordinator.showTOC {
                     TOCView(
                         chapters: coordinator.tocEntries,
-                        onChapterSelect: { coordinator.navigateToChapter($0) }
+                        onChapterSelect: { coordinator.navigateToChapter($0) },
+                        isPDF: book.fileType == .pdf
                     )
                     .frame(width: 200)
                     .background(themeManager.currentTheme.sidebarBG)
@@ -49,7 +50,7 @@ struct ReaderView: View {
                     case .pdf:
                         PDFRendererView(
                             book: book,
-                            progress: $coordinator.progress,
+                            coordinator: coordinator,
                             themeManager: themeManager
                         )
                     }
@@ -77,7 +78,7 @@ struct ReaderView: View {
         case .mobi:
             await coordinator.loadMOBI()
         case .pdf:
-            break
+            coordinator.loadPDF()
         }
     }
 }
