@@ -17,7 +17,7 @@ final class MOBIConverter {
         converterPath != nil
     }
 
-    func convertToEPUB(mobiURL: URL) async throws -> URL {
+    func convertToEPUB(mobiURL: URL) throws -> URL {
         guard let converterPath else {
             throw MOBIError.converterNotFound
         }

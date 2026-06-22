@@ -25,12 +25,7 @@ struct ContentView: View {
         .environment(themeManager)
         .frame(minWidth: 800, minHeight: 600)
         .task {
-            do {
-                storageService = try StorageService()
-            } catch {
-                print("Failed to initialize StorageService: \(error)")
-                storageService = StorageService.preview
-            }
+            storageService = await StorageService.create()
         }
         .onAppear {
             NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

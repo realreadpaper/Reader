@@ -7,18 +7,20 @@ final class StorageService {
     private let modelContainer: ModelContainer
     private let modelContext: ModelContext
 
-    init() throws {
-        let config = ModelConfiguration(isStoredInMemoryOnly: false)
-        self.modelContainer = try ModelContainer(
-            for: Book.self, Bookmark.self, Highlight.self,
-            configurations: config
-        )
-        self.modelContext = modelContainer.mainContext
-    }
-
     private init(container: ModelContainer) {
         self.modelContainer = container
         self.modelContext = container.mainContext
+    }
+
+    static func create() async -> StorageService {
+        await Task { @MainActor in
+            let config = ModelConfiguration(isStoredInMemoryOnly: false)
+            let container = try! ModelContainer(
+                for: Book.self, Bookmark.self, Highlight.self,
+                configurations: config
+            )
+            return StorageService(container: container)
+        }.value
     }
 
     // MARK: - Book CRUD
@@ -128,17 +130,5 @@ final class StorageService {
 
     private func save() {
         try? modelContext.save()
-    }
-
-    // MARK: - Preview
-
-    static var preview: StorageService {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try! ModelContainer(
-            for: Book.self, Bookmark.self, Highlight.self,
-            configurations: config
-        )
-        let service = StorageService(container: container)
-        return service
     }
 }

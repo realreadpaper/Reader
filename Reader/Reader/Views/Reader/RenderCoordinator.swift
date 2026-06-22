@@ -12,6 +12,7 @@ final class RenderCoordinator {
     var showTOC: Bool = false
     var showSearch: Bool = false
     var showFontPanel: Bool = false
+    var isLoading: Bool = false
 
     init(book: Book) {
         self.book = book
@@ -19,22 +20,43 @@ final class RenderCoordinator {
 
     func loadEPUB() async {
         guard book.fileType == .epub else { return }
-        let parser = EPUBParser()
-        if let metadata = try? parser.parse(fileAt: URL(fileURLWithPath: book.filePath)) {
-            self.epubMetadata = metadata
+        isLoading = true
+        defer { isLoading = false }
+        
+        let filePath = book.filePath
+        let metadata: EPUBMetadata? = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let parser = EPUBParser()
+                let result = try? parser.parse(fileAt: URL(fileURLWithPath: filePath))
+                continuation.resume(returning: result)
+            }
         }
+        self.epubMetadata = metadata
     }
 
     func loadMOBI() async {
         guard book.fileType == .mobi else { return }
-        let converter = MOBIConverter()
-        if converter.isAvailable,
-           let epubURL = try? await converter.convertToEPUB(mobiURL: URL(fileURLWithPath: book.filePath)) {
-            let parser = EPUBParser()
-            if let metadata = try? parser.parse(fileAt: epubURL) {
-                self.epubMetadata = metadata
+        isLoading = true
+        defer { isLoading = false }
+        
+        let filePath = book.filePath
+        let metadata: EPUBMetadata? = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let converter = MOBIConverter()
+                guard converter.isAvailable else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                guard let epubURL = try? converter.convertToEPUB(mobiURL: URL(fileURLWithPath: filePath)) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let parser = EPUBParser()
+                let result = try? parser.parse(fileAt: epubURL)
+                continuation.resume(returning: result)
             }
         }
+        self.epubMetadata = metadata
     }
 
     func loadPDF() {
@@ -43,13 +65,6 @@ final class RenderCoordinator {
             pdfPageCount = document.pageCount
             pdfCurrentPage = document.pageCount > 0 ? 1 : 0
             progress = pdfPageCount > 0 ? 1.0 / Double(pdfPageCount) : 0
-        }
-    }
-
-    var pdfTocEntries: [(title: String, chapterIndex: Int)] {
-        guard book.fileType == .pdf, pdfPageCount > 0 else { return [] }
-        return (0..<pdfPageCount).map { pageIndex in
-            (title: "第 \(pageIndex + 1) 页", chapterIndex: pageIndex)
         }
     }
 
@@ -68,6 +83,13 @@ final class RenderCoordinator {
             return pdfTocEntries
         }
         return epubMetadata?.tocEntries ?? []
+    }
+
+    var pdfTocEntries: [(title: String, chapterIndex: Int)] {
+        guard book.fileType == .pdf, pdfPageCount > 0 else { return [] }
+        return (0..<pdfPageCount).map { pageIndex in
+            (title: "第 \(pageIndex + 1) 页", chapterIndex: pageIndex)
+        }
     }
 
     var totalChapters: Int {
