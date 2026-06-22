@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SidebarView: View {
     @Binding var selectedBook: Book?
@@ -22,6 +23,7 @@ struct SidebarView: View {
                 Spacer()
                 Button(action: importBook) {
                     Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .medium))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(theme.currentTheme.accent)
@@ -29,13 +31,34 @@ struct SidebarView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
 
-            Picker("", selection: $selectedTab) {
+            HStack(spacing: 0) {
                 ForEach(SidebarTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
+                    Button(action: { selectedTab = tab }) {
+                        Text(tab.rawValue)
+                            .font(.caption)
+                            .fontWeight(selectedTab == tab ? .semibold : .regular)
+                            .foregroundStyle(
+                                selectedTab == tab
+                                    ? theme.currentTheme.primaryText
+                                    : theme.currentTheme.secondaryText
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .background(
+                                selectedTab == tab
+                                    ? theme.currentTheme.border.opacity(0.6)
+                                    : Color.clear
+                            )
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .pickerStyle(.segmented)
             .padding(.horizontal, 8)
+            .padding(.top, 4)
+
+            Divider()
+                .background(theme.currentTheme.border)
 
             TabView(selection: $selectedTab) {
                 BookListView(
@@ -60,25 +83,35 @@ struct SidebarView: View {
         .background(theme.currentTheme.sidebarBG)
     }
 
+    @MainActor
     private func importBook() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "epub")!,
-            .init(filenameExtension: "mobi")!,
-            .init(filenameExtension: "pdf")!
-        ]
-
-        if panel.runModal() == .OK, let url = panel.url {
-            let fileType = FileType(rawValue: url.pathExtension.lowercased()) ?? .epub
-            Task {
-                await storageService.addBook(
-                    title: url.deletingPathExtension().lastPathComponent,
-                    filePath: url.path,
-                    fileType: fileType
-                )
-            }
+        
+        var types: [UTType] = []
+        if let epubType = UTType(filenameExtension: "epub") {
+            types.append(epubType)
         }
+        if let mobiType = UTType(filenameExtension: "mobi") {
+            types.append(mobiType)
+        }
+        if let pdfType = UTType(filenameExtension: "pdf") {
+            types.append(pdfType)
+        }
+        panel.allowedContentTypes = types
+
+        let result = panel.runModal()
+        guard result == .OK, let url = panel.url else { return }
+        
+        let ext = url.pathExtension.lowercased()
+        let fileType = FileType(rawValue: ext) ?? .epub
+        let title = url.deletingPathExtension().lastPathComponent
+        
+        _ = storageService.addBook(
+            title: title,
+            filePath: url.path,
+            fileType: fileType
+        )
     }
 }
