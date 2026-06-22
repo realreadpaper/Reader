@@ -72,11 +72,13 @@ struct SidebarView: View {
 
         if panel.runModal() == .OK, let url = panel.url {
             let fileType = FileType(rawValue: url.pathExtension.lowercased()) ?? .epub
-            _ = storageService.addBook(
-                title: url.deletingPathExtension().lastPathComponent,
-                filePath: url.path,
-                fileType: fileType
-            )
+            Task {
+                await storageService.addBook(
+                    title: url.deletingPathExtension().lastPathComponent,
+                    filePath: url.path,
+                    fileType: fileType
+                )
+            }
         }
     }
 }

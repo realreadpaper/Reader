@@ -109,7 +109,7 @@ extension Color {
     }
 
     var hex: String {
-        guard let components = UIColor(self).cgColor.components else { return "#000000" }
+        guard let components = NSColor(self).cgColor.components else { return "#000000" }
         let r = Int(components[0] * 255)
         let g = Int(components[1] * 255)
         let b = Int(components.count > 2 ? components[2] * 255 : 0)

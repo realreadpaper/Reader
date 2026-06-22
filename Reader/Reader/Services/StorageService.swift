@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 
+@MainActor
 @Observable
 final class StorageService {
     private let modelContainer: ModelContainer
@@ -34,20 +35,20 @@ final class StorageService {
         return (try? modelContext.fetch(descriptor)) ?? []
     }
 
-    func fetchRecentBooks(limit: Int = 10) -> [Book] {
+    func fetchRecentBooks() -> [Book] {
         let descriptor = FetchDescriptor<Book>(
-            sortBy: [SortDescriptor(\.lastRead, order: .reverse)],
-            fetchLimit: limit
+            sortBy: [SortDescriptor(\.lastRead, order: .reverse)]
         )
-        return (try? modelContext.fetch(descriptor)) ?? []
+        let books = (try? modelContext.fetch(descriptor)) ?? []
+        return Array(books.prefix(10))
     }
 
     func fetchFavoriteBooks() -> [Book] {
         let descriptor = FetchDescriptor<Book>(
-            predicate: #Predicate<Book> { $0.isFavorite == true },
             sortBy: [SortDescriptor(\.title)]
         )
-        return (try? modelContext.fetch(descriptor)) ?? []
+        let books = (try? modelContext.fetch(descriptor)) ?? []
+        return books.filter { $0.isFavorite }
     }
 
     func updateBook(_ book: Book) {
@@ -71,10 +72,10 @@ final class StorageService {
 
     func fetchBookmarks(for book: Book) -> [Bookmark] {
         let descriptor = FetchDescriptor<Bookmark>(
-            predicate: #Predicate<Bookmark> { $0.book?.id == book.id },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
-        return (try? modelContext.fetch(descriptor)) ?? []
+        let bookmarks = (try? modelContext.fetch(descriptor)) ?? []
+        return bookmarks.filter { $0.book?.id == book.id }
     }
 
     func deleteBookmark(_ bookmark: Bookmark) {
@@ -107,10 +108,10 @@ final class StorageService {
 
     func fetchHighlights(for book: Book) -> [Highlight] {
         let descriptor = FetchDescriptor<Highlight>(
-            predicate: #Predicate<Highlight> { $0.book?.id == book.id },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
-        return (try? modelContext.fetch(descriptor)) ?? []
+        let highlights = (try? modelContext.fetch(descriptor)) ?? []
+        return highlights.filter { $0.book?.id == book.id }
     }
 
     func updateHighlight(_ highlight: Highlight, note: String?) {

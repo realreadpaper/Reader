@@ -90,8 +90,8 @@ struct SearchPanelView: View {
         for (index, chapter) in chapters.enumerated() {
             let plainText = chapter.htmlContent.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             if let range = plainText.range(of: searchText, options: .caseInsensitive) {
-                let snippetStart = plainText.index(range.lowerBound, offsetBy: -20, constrainedBy: plainText.startIndex) ?? plainText.startIndex
-                let snippetEnd = plainText.index(range.upperBound, offsetBy: 20, constrainedBy: plainText.endIndex) ?? plainText.endIndex
+                let snippetStart = plainText.index(range.lowerBound, offsetBy: -20, limitedBy: plainText.startIndex) ?? plainText.startIndex
+                let snippetEnd = plainText.index(range.upperBound, offsetBy: 20, limitedBy: plainText.endIndex) ?? plainText.endIndex
 
                 let snippet = "..." + plainText[snippetStart..<snippetEnd] + "..."
 

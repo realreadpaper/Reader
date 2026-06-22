@@ -62,7 +62,9 @@ struct TopBarView: View {
     private func addBookmark() {
         let position = "\(coordinator.currentChapter):\(coordinator.progress)"
         let chapter = coordinator.tocEntries[safe: coordinator.currentChapter]?.title
-        _ = storageService.addBookmark(to: book, position: position, chapter: chapter)
+        Task {
+            await storageService.addBookmark(to: book, position: position, chapter: chapter)
+        }
     }
 }
 

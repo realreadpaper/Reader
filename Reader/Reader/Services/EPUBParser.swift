@@ -93,16 +93,35 @@ final class EPUBParser {
 
         let manifestPattern = #"<item\s+id="([^"]*)"\s+href="([^"]*)"\s+media-type="([^"]*)""#
         var manifest: [(id: String, href: String, mediaType: String)] = []
-        for match in opfString.matches(of: manifestPattern) {
-            manifest.append((
-                id: String(match.1),
-                href: String(match.2),
-                mediaType: String(match.3)
-            ))
+        
+        if let regex = try? NSRegularExpression(pattern: manifestPattern) {
+            let range = NSRange(opfString.startIndex..., in: opfString)
+            let matches = regex.matches(in: opfString, range: range)
+            for match in matches {
+                if let idRange = Range(match.range(at: 1), in: opfString),
+                   let hrefRange = Range(match.range(at: 2), in: opfString),
+                   let mediaRange = Range(match.range(at: 3), in: opfString) {
+                    manifest.append((
+                        id: String(opfString[idRange]),
+                        href: String(opfString[hrefRange]),
+                        mediaType: String(opfString[mediaRange])
+                    ))
+                }
+            }
         }
 
         let spinePattern = #"<itemref\s+idref="([^"]*)""#
-        let spineOrder = opfString.matches(of: spinePattern).map { String($0.1) }
+        var spineOrder: [String] = []
+        
+        if let regex = try? NSRegularExpression(pattern: spinePattern) {
+            let range = NSRange(opfString.startIndex..., in: opfString)
+            let matches = regex.matches(in: opfString, range: range)
+            for match in matches {
+                if let refRange = Range(match.range(at: 1), in: opfString) {
+                    spineOrder.append(String(opfString[refRange]))
+                }
+            }
+        }
 
         return OPFResult(title: title, author: author, manifest: manifest, spineOrder: spineOrder)
     }

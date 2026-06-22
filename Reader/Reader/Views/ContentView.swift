@@ -4,15 +4,11 @@ struct ContentView: View {
     @State private var themeManager = ThemeManager()
     @State private var selectedBook: Book?
     @State private var showSidebar = true
-    @State private var storageService: StorageService
-
-    init() {
-        _storageService = State(initialValue: (try? StorageService()) ?? StorageService.preview)
-    }
+    @State private var storageService: StorageService?
 
     var body: some View {
         HSplitView {
-            if showSidebar {
+            if showSidebar, let storageService {
                 SidebarView(
                     selectedBook: $selectedBook,
                     storageService: storageService
@@ -20,7 +16,7 @@ struct ContentView: View {
                 .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
             }
 
-            if let book = selectedBook {
+            if let book = selectedBook, let storageService {
                 ReaderView(book: book, themeManager: themeManager, storageService: storageService)
             } else {
                 WelcomeView(themeManager: themeManager)
@@ -28,6 +24,14 @@ struct ContentView: View {
         }
         .environment(themeManager)
         .frame(minWidth: 800, minHeight: 600)
+        .task {
+            do {
+                storageService = try StorageService()
+            } catch {
+                print("Failed to initialize StorageService: \(error)")
+                storageService = StorageService.preview
+            }
+        }
         .onAppear {
             NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                 if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "s" {

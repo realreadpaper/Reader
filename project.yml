@@ -1,0 +1,32 @@
+name: Reader
+options:
+  bundleIdPrefix: com.reader
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.4"
+  createIntermediateGroups: true
+
+targets:
+  Reader:
+    type: application
+    platform: macOS
+    sources:
+      - Reader
+    resources:
+      - Reader/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.reader.app
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        INFOPLIST_FILE: ""
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.books"
+        INFOPLIST_KEY_CFBundleDisplayName: "Reader"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        PRODUCT_NAME: Reader
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
