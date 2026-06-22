@@ -1,0 +1,35 @@
+body {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 40px 20px;
+    font-family: -apple-system, "PingFang SC", "Songti SC", serif;
+    font-size: 16px;
+    line-height: 2.1;
+    color: #2E2518;
+    background: #F5EFE3;
+}
+
+h1, h2, h3, h4 {
+    color: #2E2518;
+    margin-top: 2em;
+    margin-bottom: 0.8em;
+}
+
+h1 { font-size: 1.8em; }
+h2 { font-size: 1.5em; }
+h3 { font-size: 1.3em; }
+
+p {
+    text-indent: 2em;
+    margin-bottom: 1em;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+.highlight-yellow { background-color: #E8D5A0; }
+.highlight-green { background-color: #C8E8D5; }
+.highlight-orange { background-color: #E8D0B8; }
+.highlight-blue { background-color: #C8D5E8; }

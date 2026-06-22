@@ -1,0 +1,28 @@
+.theme-classic {
+    background: #FAF6EF;
+    color: #3A3025;
+}
+.theme-classic h1, .theme-classic h2, .theme-classic h3 { color: #3A3025; }
+
+.theme-kraft {
+    background: #F5EFE3;
+    color: #2E2518;
+}
+.theme-kraft h1, .theme-kraft h2, .theme-kraft h3 { color: #2E2518; }
+
+.theme-night {
+    background: #1E1A15;
+    color: #D5C8B0;
+}
+.theme-night h1, .theme-night h2, .theme-night h3 { color: #D5C8B0; }
+.theme-night img { filter: brightness(0.8); }
+.theme-night .highlight-yellow { background-color: #5A4A28; }
+.theme-night .highlight-green { background-color: #2A4A35; }
+.theme-night .highlight-orange { background-color: #4A3528; }
+.theme-night .highlight-blue { background-color: #2A3550; }
+
+.theme-eyeCare {
+    background: #D5E8D0;
+    color: #2A3528;
+}
+.theme-eyeCare h1, .theme-eyeCare h2, .theme-eyeCare h3 { color: #2A3528; }

@@ -1,0 +1,41 @@
+<h2>项目结构</h2>
+p class="subtitle">推荐的目录组织方式</p>
+
+<div class="mockup">
+  <div class="mockup-header">Reader/ 项目目录</div>
+  <div class="mockup-body" style="padding:16px;background:#1e1a15;font-family:'SF Mono',Menlo,monospace;font-size:11px;color:#d5c8b0;line-height:1.8">
+    <div><span style="color:#8b7355">Reader/</span></div>
+    <div>├── <span style="color:#e8dcc8">ReaderApp.swift</span>          <span style="color:#6b5a40">应用入口</span></div>
+    <div>├── <span style="color:#8b7355">Models/</span></div>
+    <div>│   ├── Book.swift              <span style="color:#6b5a40">书籍模型</span></div>
+    <div>│   ├── Bookmark.swift          <span style="color:#6b5a40">书签模型</span></div>
+    <div>│   └── Highlight.swift         <span style="color:#6b5a40">标注模型</span></div>
+    <div>├── <span style="color:#8b7355">Views/</span></div>
+    <div>│   ├── Sidebar/</div>
+    <div>│   │   ├── SidebarView.swift   <span style="color:#6b5a40">侧边栏容器</span></div>
+    <div>│   │   ├── BookListView.swift  <span style="color:#6b5a40">书架列表</span></div>
+    <div>│   │   ├── TOCView.swift       <span style="color:#6b5a40">目录视图</span></div>
+    <div>│   │   └── AnnotationView.swift<span style="color:#6b5a40">标注列表</span></div>
+    <div>│   ├── Reader/</div>
+    <div>│   │   ├── ReaderView.swift    <span style="color:#6b5a40">阅读主区域</span></div>
+    <div>│   │   ├── EPUBRenderer.swift  <span style="color:#6b5a40">EPUB 渲染</span></div>
+    <div>│   │   ├── PDFRenderer.swift   <span style="color:#6b5a40">PDF 渲染</span></div>
+    <div>│   │   └── MOBIRenderer.swift  <span style="color:#6b5a40">MOBI 渲染</span></div>
+    <div>│   ├── Toolbar/</div>
+    <div>│   │   ├── TopBar.swift        <span style="color:#6b5a40">顶部工具栏</span></div>
+    <div>│   │   ├── BottomBar.swift     <span style="color:#6b5a40">底部状态栏</span></div>
+    <div>│   │   ├── FontPanel.swift     <span style="color:#6b5a40">字体设置面板</span></div>
+    <div>│   │   └── SearchPanel.swift   <span style="color:#6b5a40">搜索面板</span></div>
+    <div>│   └── Components/</div>
+    <div>│       ├── HighlightMenu.swift <span style="color:#6b5a40">高亮操作菜单</span></div>
+    <div>│       └── ProgressView.swift  <span style="color:#6b5a40">进度条组件</span></div>
+    <div>├── <span style="color:#8b7355">Services/</span></div>
+    <div>│   ├── EPUBParser.swift        <span style="color:#6b5a40">EPUB 解析</span></div>
+    <div>│   ├── MOBIConverter.swift     <span style="color:#6b5a40">MOBI 转换</span></div>
+    <div>│   └── StorageService.swift    <span style="color:#6b5a40">数据持久化</span></div>
+    <div>├── <span style="color:#8b7355">Resources/</span></div>
+    <div>│   ├── Fonts/                  <span style="color:#6b5a40">内置字体</span></div>
+    <div>│   └── Styles/                 <span style="color:#6b5a40">CSS 样式模板</span></div>
+    <div>└── <span style="color:#8b7355">Assets.xcassets/</span>          <span style="color:#6b5a40">图标资源</span></div>
+  </div>
+</div>

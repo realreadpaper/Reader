@@ -1,0 +1,42 @@
+<h2>文件格式处理</h2>
+p class="subtitle">三种格式的解析和渲染方案</p>
+
+<div class="options">
+  <div class="option" data-choice="epub" onclick="toggleSelect(this)" style="cursor:default">
+    <div class="letter">E</div>
+    <div class="content">
+      <h3>EPUB 处理</h3>
+      <p>EPUB 本质是 ZIP 包（HTML + CSS + 图片），解析后注入自定义 CSS 控制排版，通过 WKWebView 渲染。</p>
+      <div style="margin-top:8px;font-size:11px;color:#888;line-height:1.6">
+        <b>解析</b>： unzip → 解析 content.opf 获取章节列表 → 逐章读取 XHTML<br>
+        <b>渲染</b>：WKWebView 加载 HTML，注入字体/行距/主题 CSS<br>
+        <b>交互</b>：JavaScript Bridge 处理选中文字、翻页、目录跳转
+      </div>
+    </div>
+  </div>
+  <div class="option" data-choice="mobi" onclick="toggleSelect(this)" style="cursor:default">
+    <div class="letter">M</div>
+    <div class="content">
+      <h3>MOBI 处理</h3>
+      <p>MOBI 格式复杂，建议导入时预转换为 EPUB 存储，后续直接读取转换后的文件。</p>
+      <div style="margin-top:8px;font-size:11px;color:#888;line-height:1.6">
+        <b>导入时</b>：调用命令行工具 calibre/ebook-convert 转为 EPUB<br>
+        <b>存储</b>：转换后的 EPUB 保存到 App 沙盒，原文件保留但标记为"已转换"<br>
+        <b>优势</b>：避免运行时解析 MOBI 的复杂性，复用 EPUB 渲染管线
+      </div>
+    </div>
+  </div>
+  <div class="option" data-choice="pdf" onclick="toggleSelect(this)" style="cursor:default">
+    <div class="letter">P</div>
+    <div class="content">
+      <h3>PDF 处理</h3>
+      <p>使用原生 PDFKit 框架，性能最优，支持文字选择、搜索、高亮。</p>
+      <div style="margin-top:8px;font-size:11px;color:#888;line-height:1.6">
+        <b>渲染</b>：PDFView 原生渲染，支持缩放、滚动<br>
+        <b>搜索</b>：PDFDocument.findString() 原生全文搜索<br>
+        <b>高亮</b>：PDFAnnotation 添加文字标注<br>
+        <b>限制</b>：纯图片 PDF 无法选择文字（与原生 Preview 行为一致）
+      </div>
+    </div>
+  </div>
+</div>

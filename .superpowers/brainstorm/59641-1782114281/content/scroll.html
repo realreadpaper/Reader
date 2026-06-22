@@ -1,0 +1,34 @@
+<h2>翻页方式选择</h2>
+p class="subtitle">阅读时如何前进和后退？</p>
+
+<div class="options">
+  <div class="option" data-choice="scroll" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>连续滚动（推荐）</h3>
+      <p>像网页一样上下滚动，支持触控板手势。PDF 保持原生滚动，EPUB/MOBI 渲染为连续 HTML。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优势</h4><ul><li>操作直觉，触控板用户无缝体验</li><li>PDF/EPUB 行为一致</li><li>支持任意位置停止</li></ul></div>
+        <div class="cons"><h4>劣势</h4><ul><li>缺少"翻页"的仪式感</li></ul></div>
+      </div>
+    </div>
+  </div>
+  <div class="option" data-choice="paged" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>仿真翻页</h3>
+      <p>左右键/手势触发翻页动画，像实体书一样一页一页翻。PDF 天然分页，EPUB 按屏幕高度分页。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优势</h4><ul><li>沉浸感强，像读实体书</li><li>精确控制每页内容</li></ul></div>
+        <div class="cons"><h4>劣势</h4><ul><li>EPUB 分页可能切断段落</li><li>导航不够灵活</li></ul></div>
+      </div>
+    </div>
+  </div>
+  <div class="option" data-choice="both" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>双模式可切换</h3>
+      <p>默认连续滚动，用户可在设置中切换为翻页模式。两种模式各自保存偏好。</p>
+    </div>
+  </div>
+</div>
