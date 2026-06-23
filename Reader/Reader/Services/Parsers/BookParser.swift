@@ -36,8 +36,10 @@ protocol BookParser {
 
 enum BookParserRegistry {
     static func parser(for type: FileType) -> BookParser? {
-        // 后续 Task 会逐个填充
-        return nil
+        switch type {
+        case .pdf:  return PDFParser()
+        case .epub, .mobi: return nil  // 后续 Task 填充
+        }
     }
 }
 
