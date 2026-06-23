@@ -9,42 +9,55 @@ struct HighlightMenuView: View {
     @Environment(ThemeManager.self) private var theme
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             ForEach(HighlightColor.allCases, id: \.self) { color in
                 Button(action: { onHighlight(color) }) {
                     Circle()
                         .fill(Color(hex: color.hex))
-                        .frame(width: 22, height: 22)
+                        .frame(width: 20, height: 20)
                         .overlay(
                             Circle()
-                                .stroke(.white, lineWidth: 2)
+                                .stroke(.white, lineWidth: 1.5)
                         )
                 }
                 .buttonStyle(.plain)
+                .help(colorName(color))
             }
 
             Divider()
-                .frame(height: 20)
+                .frame(height: 18)
 
             Button(action: onCopy) {
-                HStack(spacing: 4) {
-                    Image(systemName: "doc.on.doc")
-                    Text("复制")
-                }
-                .font(.caption)
+                Image(systemName: "doc.on.doc")
+                    .font(.caption)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 8)
+            .help("复制")
 
             Button(action: onDelete) {
-                Image(systemName: "trash")
+                Image(systemName: "xmark")
+                    .font(.caption)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.red)
+            .foregroundStyle(.red.opacity(0.7))
+            .help("取消")
         }
-        .padding(8)
-        .background(.white)
-        .cornerRadius(10)
-        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+        .padding(10)
+        .background(theme.currentTheme.sidebarBG)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(theme.currentTheme.border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+    }
+
+    private func colorName(_ color: HighlightColor) -> String {
+        switch color {
+        case .yellow: return "黄色"
+        case .green: return "绿色"
+        case .orange: return "橙色"
+        case .blue: return "蓝色"
+        }
     }
 }

@@ -3,14 +3,21 @@ import SwiftUI
 struct BottomBarView: View {
     let book: Book
     let coordinator: RenderCoordinator
-    let themeManager: ThemeManager
+
+    @Environment(ThemeManager.self) private var themeManager
 
     var body: some View {
         HStack(spacing: 8) {
             if coordinator.totalChapters > 0 {
-                Text("第 \(coordinator.currentChapter + 1)/\(coordinator.totalChapters) 章")
-                    .font(.caption2)
-                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+                if book.fileType == .pdf {
+                    Text("第 \(coordinator.pdfCurrentPage) 页 / 共 \(coordinator.totalChapters) 页")
+                        .font(.caption2)
+                        .foregroundStyle(themeManager.currentTheme.secondaryText)
+                } else {
+                    Text("第 \(coordinator.currentChapter + 1) 章 / 共 \(coordinator.totalChapters) 章")
+                        .font(.caption2)
+                        .foregroundStyle(themeManager.currentTheme.secondaryText)
+                }
             }
 
             Spacer()
@@ -23,19 +30,19 @@ struct BottomBarView: View {
 
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(themeManager.currentTheme.accent)
-                        .frame(width: geometry.size.width * coordinator.progress, height: 2)
+                        .frame(width: max(0, min(geometry.size.width, geometry.size.width * coordinator.progress)), height: 2)
                 }
             }
-            .frame(width: 80)
+            .frame(width: 120)
 
             Text("\(Int(coordinator.progress * 100))%")
                 .font(.caption2)
                 .foregroundStyle(themeManager.currentTheme.secondaryText)
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: 38, alignment: .trailing)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .frame(height: 24)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .frame(height: 28)
         .background(themeManager.currentTheme.sidebarBG)
         .overlay(alignment: .top) {
             Divider().background(themeManager.currentTheme.border)

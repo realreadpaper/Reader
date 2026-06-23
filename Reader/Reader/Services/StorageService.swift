@@ -4,29 +4,22 @@ import SwiftData
 @MainActor
 @Observable
 final class StorageService {
-    private let modelContainer: ModelContainer
     private let modelContext: ModelContext
 
-    private init(container: ModelContainer) {
-        self.modelContainer = container
-        self.modelContext = container.mainContext
-    }
-
-    static func create() async -> StorageService {
-        await Task { @MainActor in
-            let config = ModelConfiguration(isStoredInMemoryOnly: false)
-            let container = try! ModelContainer(
-                for: Book.self, Bookmark.self, Highlight.self,
-                configurations: config
-            )
-            return StorageService(container: container)
-        }.value
+    init(modelContext: ModelContext) {
+        self.modelContext = modelContext
     }
 
     // MARK: - Book CRUD
 
-    func addBook(title: String, author: String? = nil, filePath: String, fileType: FileType) -> Book {
-        let book = Book(title: title, author: author, filePath: filePath, fileType: fileType)
+    func addBook(title: String, author: String? = nil, coverPath: String? = nil, filePath: String, fileType: FileType) -> Book {
+        let book = Book(
+            title: title,
+            author: author,
+            coverPath: coverPath,
+            filePath: filePath,
+            fileType: fileType
+        )
         modelContext.insert(book)
         save()
         return book
@@ -37,24 +30,36 @@ final class StorageService {
         return (try? modelContext.fetch(descriptor)) ?? []
     }
 
-    func fetchRecentBooks() -> [Book] {
-        let descriptor = FetchDescriptor<Book>(
+    func fetchRecentBooks(limit: Int = 10) -> [Book] {
+        var descriptor = FetchDescriptor<Book>(
             sortBy: [SortDescriptor(\.lastRead, order: .reverse)]
         )
-        let books = (try? modelContext.fetch(descriptor)) ?? []
-        return Array(books.prefix(10))
+        descriptor.fetchLimit = limit
+        return (try? modelContext.fetch(descriptor)) ?? []
     }
 
     func fetchFavoriteBooks() -> [Book] {
+        let predicate = #Predicate<Book> { $0.isFavorite == true }
         let descriptor = FetchDescriptor<Book>(
+            predicate: predicate,
             sortBy: [SortDescriptor(\.title)]
         )
-        let books = (try? modelContext.fetch(descriptor)) ?? []
-        return books.filter { $0.isFavorite }
+        return (try? modelContext.fetch(descriptor)) ?? []
     }
 
     func updateBook(_ book: Book) {
         book.lastRead = Date()
+        save()
+    }
+
+    func updateProgress(_ book: Book, progress: Double) {
+        book.progress = max(0, min(1, progress))
+        book.lastRead = Date()
+        save()
+    }
+
+    func toggleFavorite(_ book: Book) {
+        book.isFavorite.toggle()
         save()
     }
 
@@ -73,11 +78,13 @@ final class StorageService {
     }
 
     func fetchBookmarks(for book: Book) -> [Bookmark] {
+        let bookID = book.id
+        let predicate = #Predicate<Bookmark> { $0.book?.id == bookID }
         let descriptor = FetchDescriptor<Bookmark>(
+            predicate: predicate,
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
-        let bookmarks = (try? modelContext.fetch(descriptor)) ?? []
-        return bookmarks.filter { $0.book?.id == book.id }
+        return (try? modelContext.fetch(descriptor)) ?? []
     }
 
     func deleteBookmark(_ bookmark: Bookmark) {
@@ -109,11 +116,13 @@ final class StorageService {
     }
 
     func fetchHighlights(for book: Book) -> [Highlight] {
+        let bookID = book.id
+        let predicate = #Predicate<Highlight> { $0.book?.id == bookID }
         let descriptor = FetchDescriptor<Highlight>(
+            predicate: predicate,
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
-        let highlights = (try? modelContext.fetch(descriptor)) ?? []
-        return highlights.filter { $0.book?.id == book.id }
+        return (try? modelContext.fetch(descriptor)) ?? []
     }
 
     func updateHighlight(_ highlight: Highlight, note: String?) {
@@ -129,6 +138,10 @@ final class StorageService {
     // MARK: - Private
 
     private func save() {
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            print("StorageService save error: \(error)")
+        }
     }
 }

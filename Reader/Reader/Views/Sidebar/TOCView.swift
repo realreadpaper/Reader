@@ -4,24 +4,33 @@ struct TOCView: View {
     let chapters: [(title: String, chapterIndex: Int)]
     let onChapterSelect: (Int) -> Void
     let isPDF: Bool
+    let currentIndex: Int
+
     @Environment(ThemeManager.self) private var theme
 
-    init(chapters: [(title: String, chapterIndex: Int)], onChapterSelect: @escaping (Int) -> Void, isPDF: Bool = false) {
+    init(
+        chapters: [(title: String, chapterIndex: Int)],
+        onChapterSelect: @escaping (Int) -> Void,
+        isPDF: Bool = false,
+        currentIndex: Int = -1
+    ) {
         self.chapters = chapters
         self.onChapterSelect = onChapterSelect
         self.isPDF = isPDF
+        self.currentIndex = currentIndex
     }
 
     var body: some View {
         List {
             ForEach(chapters, id: \.chapterIndex) { chapter in
+                let isSelected = chapter.chapterIndex == currentIndex
                 Button(action: { onChapterSelect(chapter.chapterIndex) }) {
                     HStack {
                         if isPDF {
-                            Text("第 \(chapter.chapterIndex + 1) 页")
+                            Text("\(chapter.chapterIndex + 1)")
                                 .font(.caption)
                                 .foregroundStyle(theme.currentTheme.secondaryText)
-                                .frame(width: 50, alignment: .leading)
+                                .frame(width: 32, alignment: .trailing)
                         }
                         Text(chapter.title)
                             .font(.subheadline)
@@ -29,6 +38,21 @@ struct TOCView: View {
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                    .background(
+                        isSelected
+                            ? theme.currentTheme.accent.opacity(0.18)
+                            : Color.clear
+                    )
+                    .overlay(alignment: .leading) {
+                        if isSelected {
+                            Rectangle()
+                                .fill(theme.currentTheme.accent)
+                                .frame(width: 3)
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
                 .buttonStyle(.plain)
             }
