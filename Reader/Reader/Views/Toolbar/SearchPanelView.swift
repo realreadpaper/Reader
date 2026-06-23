@@ -1,5 +1,14 @@
 import SwiftUI
 
+enum SearchPanelLayout {
+    static let maxWidth: CGFloat = 480
+    static let resultAreaMaxHeight: CGFloat = 200
+
+    static func maxHeight(hasResultArea: Bool) -> CGFloat? {
+        hasResultArea ? resultAreaMaxHeight : nil
+    }
+}
+
 struct SearchPanelView: View {
     let coordinator: RenderCoordinator
     let onResultSelect: (SearchResultTarget) -> Void
@@ -7,15 +16,8 @@ struct SearchPanelView: View {
 
     @Environment(ThemeManager.self) private var themeManager
     @State private var searchText = ""
-    @State private var epubResults: [EPUBSearchResult] = []
+    @State private var epubResults: [RenderCoordinator.EPUBSearchResult] = []
     @State private var currentResultIndex = 0
-
-    struct EPUBSearchResult: Identifiable {
-        let id = UUID()
-        let chapterTitle: String
-        let chapterIndex: Int
-        let snippet: String
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -77,10 +79,19 @@ struct SearchPanelView: View {
 
             resultList
         }
-        .frame(maxWidth: 480, maxHeight: 200)
+        .frame(
+            maxWidth: SearchPanelLayout.maxWidth,
+            maxHeight: SearchPanelLayout.maxHeight(hasResultArea: hasResultArea),
+            alignment: .top
+        )
         .background(themeManager.currentTheme.sidebarBG)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+    }
+
+    @MainActor
+    private var hasResultArea: Bool {
+        !searchText.isEmpty || totalResultsCount > 0
     }
 
     @MainActor
@@ -165,28 +176,11 @@ struct SearchPanelView: View {
             return
         }
 
-        var results: [EPUBSearchResult] = []
-        for (index, chapter) in coordinator.chapters.enumerated() {
-            let plainText = chapter.htmlContent.replacingOccurrences(
-                of: "<[^>]+>",
-                with: "",
-                options: .regularExpression
-            )
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            if let range = plainText.range(of: searchText, options: .caseInsensitive) {
-                let start = plainText.index(range.lowerBound, offsetBy: -30, limitedBy: plainText.startIndex) ?? plainText.startIndex
-                let end = plainText.index(range.upperBound, offsetBy: 30, limitedBy: plainText.endIndex) ?? plainText.endIndex
-                let snippet = "..." + plainText[start..<end] + "..."
-                results.append(EPUBSearchResult(
-                    chapterTitle: chapter.title,
-                    chapterIndex: index,
-                    snippet: snippet
-                ))
-                if results.count >= 200 { break }
-            }
+        Task {
+            let results = await coordinator.searchEPUB(searchText)
+            epubResults = results
+            currentResultIndex = 0
         }
-        epubResults = results
-        currentResultIndex = 0
     }
 
     @MainActor

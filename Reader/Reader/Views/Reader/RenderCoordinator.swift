@@ -151,34 +151,75 @@ final class RenderCoordinator {
         return book.title
     }
 
+    private var searchTask: Task<Void, Never>?
+
     func searchPDF(_ query: String) {
+        searchTask?.cancel()
         guard book.fileType == .pdf, let doc = pdfDocument, !query.isEmpty else {
             pdfSearchResults = []
             return
         }
-        var results: [(title: String, pageIndex: Int, snippet: String)] = []
-        let lower = query.lowercased()
-        for pageIndex in 0..<doc.pageCount {
-            guard let page = doc.page(at: pageIndex),
-                  let text = page.string else { continue }
-            if text.lowercased().contains(lower) {
-                let snippet = makeSnippet(from: text, query: query)
-                let title = "第 \(pageIndex + 1) 页"
-                results.append((title: title, pageIndex: pageIndex, snippet: snippet))
-                if results.count >= 200 { break }
-            }
+        pdfSearchResults = []
+        let task = Task.detached(priority: .userInitiated) {
+            Self.findInPDF(doc: doc, query: query)
         }
-        pdfSearchResults = results
+        searchTask = Task {
+            let results = await task.value
+            guard !Task.isCancelled else { return }
+            pdfSearchResults = results
+        }
     }
 
-    private func makeSnippet(from text: String, query: String) -> String {
-        guard let range = text.range(of: query, options: .caseInsensitive) else {
-            return String(text.prefix(80))
+    func searchEPUB(_ query: String) async -> [EPUBSearchResult] {
+        let chapters = self.chapters
+        guard !query.isEmpty, !chapters.isEmpty else { return [] }
+        return await Task.detached(priority: .userInitiated) {
+            var results: [EPUBSearchResult] = []
+            for (index, chapter) in chapters.enumerated() {
+                guard !Task.isCancelled else { return [] }
+                let plainText = chapter.htmlContent
+                    .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                    .replacingOccurrences(of: "&nbsp;", with: " ")
+                if let range = plainText.range(of: query, options: .caseInsensitive) {
+                    let start = plainText.index(range.lowerBound, offsetBy: -30, limitedBy: plainText.startIndex) ?? plainText.startIndex
+                    let end = plainText.index(range.upperBound, offsetBy: 30, limitedBy: plainText.endIndex) ?? plainText.endIndex
+                    let snippet = "..." + plainText[start..<end] + "..."
+                    results.append(EPUBSearchResult(
+                        chapterTitle: chapter.title,
+                        chapterIndex: index,
+                        snippet: snippet
+                    ))
+                    if results.count >= 200 { break }
+                }
+            }
+            return results
+        }.value
+    }
+
+    struct EPUBSearchResult: Identifiable {
+        let id = UUID()
+        let chapterTitle: String
+        let chapterIndex: Int
+        let snippet: String
+    }
+
+    nonisolated private static func findInPDF(
+        doc: PDFDocument,
+        query: String
+    ) -> [(title: String, pageIndex: Int, snippet: String)] {
+        let selections = doc.findString(query, withOptions: .caseInsensitive)
+        var seen = Set<Int>()
+        var results: [(title: String, pageIndex: Int, snippet: String)] = []
+        for sel in selections {
+            guard let page = sel.pages.first else { continue }
+            let idx = doc.index(for: page)
+            guard idx >= 0, !seen.contains(idx) else { continue }
+            seen.insert(idx)
+            let snippet = (sel.string ?? "").replacingOccurrences(of: "\n", with: " ")
+            results.append((title: "第 \(idx + 1) 页", pageIndex: idx, snippet: "...\(snippet)..."))
+            if results.count >= 200 { break }
         }
-        let start = text.index(range.lowerBound, offsetBy: -30, limitedBy: text.startIndex) ?? text.startIndex
-        let end = text.index(range.upperBound, offsetBy: 30, limitedBy: text.endIndex) ?? text.endIndex
-        let snippet = String(text[start..<end])
-        return "..." + snippet.replacingOccurrences(of: "\n", with: " ") + "..."
+        return results
     }
 
     private func buildPDFOutline(from document: PDFDocument) -> [(title: String, pageIndex: Int)] {
