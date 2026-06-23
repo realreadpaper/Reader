@@ -133,6 +133,7 @@ final class MOBIParser: BookParser {
     }
 
     private func splitChapters(in html: String) -> [String] {
+        // 策略 1: <mbp:pagebreak> 标记
         let pageBreakMarker = "<!-- reader-pagebreak -->"
         let pageBreakHTML = html.replacingOccurrences(
             of: "<mbp:pagebreak[^>]*>",
@@ -143,17 +144,119 @@ final class MOBIParser: BookParser {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         if pages.count > 1 {
+            BookLog.mobi.info("splitChapters: split by mbp:pagebreak into \(pages.count) pieces")
             return pages
         }
 
+        // 策略 2: <h1> 分章
         let h1Parts = html.components(separatedBy: "<h1")
         if h1Parts.count > 1 {
-            return h1Parts.enumerated().compactMap { idx, part in
+            let result = h1Parts.enumerated().compactMap { idx, part -> String? in
                 let body = idx == 0 ? "" : "<h1" + part
                 return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : body
             }
+            if result.count > 1 {
+                BookLog.mobi.info("splitChapters: split by <h1> into \(result.count) pieces")
+                return result
+            }
         }
+
+        // 策略 3: <h2> 分章（比 Calibre 更细粒度）
+        let h2Parts = html.components(separatedBy: "<h2")
+        if h2Parts.count > 1 {
+            let result = h2Parts.enumerated().compactMap { idx, part -> String? in
+                let body = idx == 0 ? "" : "<h2" + part
+                return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : body
+            }
+            if result.count > 1 {
+                BookLog.mobi.info("splitChapters: split by <h2> into \(result.count) pieces")
+                return result
+            }
+        }
+
+        // 策略 4: <h3> 分章
+        let h3Parts = html.components(separatedBy: "<h3")
+        if h3Parts.count > 1 {
+            let result = h3Parts.enumerated().compactMap { idx, part -> String? in
+                let body = idx == 0 ? "" : "<h3" + part
+                return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : body
+            }
+            if result.count > 1 {
+                BookLog.mobi.info("splitChapters: split by <h3> into \(result.count) pieces")
+                return result
+            }
+        }
+
+        // 策略 5: <hr> 分页（某些 MOBI 用水平线分隔章节）
+        let hrParts = html.components(separatedBy: "<hr")
+        if hrParts.count > 2 {
+            let result = hrParts.enumerated().compactMap { idx, part -> String? in
+                let body = idx == 0 ? "" : "<hr" + part
+                return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : body
+            }
+            if result.count > 1 {
+                BookLog.mobi.info("splitChapters: split by <hr> into \(result.count) pieces")
+                return result
+            }
+        }
+
+        // 策略 6: 按大小自动分页（超过 50KB 的 HTML 按段落边界拆分）
+        if html.count > 50_000 {
+            let result = smartSplitBySize(html)
+            if result.count > 1 {
+                BookLog.mobi.info("splitChapters: smart split by size into \(result.count) pieces")
+                return result
+            }
+        }
+
+        BookLog.mobi.info("splitChapters: no split markers found, returning as single chapter")
         return [html]
+    }
+
+    /// 按大小智能分页：在段落边界处拆分
+    private func smartSplitBySize(_ html: String) -> [String] {
+        let maxChunkSize = 30_000
+        var chunks: [String] = []
+        var current = ""
+        var lastParagraphEnd = html.startIndex
+
+        let paragraphEnders = ["</p>", "</div>", "</blockquote>", "</li>", "</td>"]
+        var searchStart = html.startIndex
+
+        while searchStart < html.endIndex {
+            var foundEnd = false
+            for ender in paragraphEnders {
+                if let range = html.range(of: ender, range: searchStart..<html.endIndex) {
+                    let candidateEnd = html.index(after: range.lowerBound)
+                    let distance = html.distance(from: lastParagraphEnd, to: candidateEnd)
+                    if distance > maxChunkSize {
+                        let chunk = String(html[lastParagraphEnd..<candidateEnd])
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !chunk.isEmpty {
+                            chunks.append(chunk)
+                        }
+                        lastParagraphEnd = candidateEnd
+                        searchStart = candidateEnd
+                        foundEnd = true
+                        break
+                    }
+                    searchStart = html.index(after: range.lowerBound)
+                }
+            }
+            if !foundEnd {
+                break
+            }
+        }
+
+        if lastParagraphEnd < html.endIndex {
+            let remaining = String(html[lastParagraphEnd..<html.endIndex])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !remaining.isEmpty {
+                chunks.append(remaining)
+            }
+        }
+
+        return chunks.isEmpty ? [html] : chunks
     }
 
     private func extractTitle(from html: String) -> String? {
