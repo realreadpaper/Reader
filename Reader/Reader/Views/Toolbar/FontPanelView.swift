@@ -1,20 +1,34 @@
 import SwiftUI
 
 struct FontPanelView: View {
-    @Binding var fontSize: CGFloat
-    @Binding var lineHeight: CGFloat
+    @Binding var fontSize: Double
+    @Binding var lineHeight: Double
     @Binding var selectedTheme: AppTheme
-    let themeManager: ThemeManager
+    @Binding var pdfFilterEnabled: Bool
+    let onClose: () -> Void
 
-    let themes: [AppTheme] = [.classic, .kraft, .night, .eyeCare]
-    let lineSpacings: [CGFloat] = [1.5, 1.8, 2.0, 2.2]
+    @Environment(ThemeManager.self) private var themeManager
+
+    let lineSpacings: [Double] = [1.5, 1.8, 2.0, 2.2, 2.5]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("字体与排版")
+                    .font(.headline)
+                    .foregroundStyle(themeManager.currentTheme.primaryText)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(themeManager.currentTheme.secondaryText)
+            }
+
             VStack(alignment: .leading, spacing: 8) {
-                Text("字体大小")
+                Text("字体大小  \(Int(fontSize))px")
                     .font(.caption)
-                    .fontWeight(.medium)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
 
                 HStack {
@@ -26,7 +40,7 @@ struct FontPanelView: View {
                     Slider(value: $fontSize, in: 12...24, step: 1)
                         .tint(themeManager.currentTheme.accent)
 
-                    Button(action: { fontSize = min(24, fontSize + 1) }) {
+                    Button(action: { fontSize = min(28, fontSize + 1) }) {
                         Text("A+").font(.title3)
                     }
                     .buttonStyle(.plain)
@@ -36,7 +50,6 @@ struct FontPanelView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("行距")
                     .font(.caption)
-                    .fontWeight(.medium)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
 
                 HStack(spacing: 6) {
@@ -47,12 +60,12 @@ struct FontPanelView: View {
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
                                 .background(
-                                    lineHeight == spacing
+                                    abs(lineHeight - spacing) < 0.01
                                         ? themeManager.currentTheme.accent
                                         : themeManager.currentTheme.border
                                 )
                                 .foregroundStyle(
-                                    lineHeight == spacing
+                                    abs(lineHeight - spacing) < 0.01
                                         ? .white
                                         : themeManager.currentTheme.primaryText
                                 )
@@ -66,11 +79,10 @@ struct FontPanelView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("主题")
                     .font(.caption)
-                    .fontWeight(.medium)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
 
                 HStack(spacing: 10) {
-                    ForEach(themes, id: \.self) { t in
+                    ForEach(AppTheme.allCases, id: \.self) { t in
                         Button(action: {
                             selectedTheme = t
                             themeManager.setTheme(t)
@@ -82,7 +94,7 @@ struct FontPanelView: View {
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 6)
                                             .stroke(
-                                                selectedTheme == t
+                                                themeManager.currentTheme == t
                                                     ? themeManager.currentTheme.accent
                                                     : .clear,
                                                 lineWidth: 2
@@ -91,7 +103,7 @@ struct FontPanelView: View {
                                 Text(t.name)
                                     .font(.caption2)
                                     .foregroundStyle(
-                                        selectedTheme == t
+                                        themeManager.currentTheme == t
                                             ? themeManager.currentTheme.primaryText
                                             : themeManager.currentTheme.secondaryText
                                     )
@@ -101,8 +113,23 @@ struct FontPanelView: View {
                     }
                 }
             }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("PDF 色调")
+                    .font(.caption)
+                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+
+                Toggle("夜间/护眼模式对 PDF 生效", isOn: $pdfFilterEnabled)
+                    .font(.caption)
+                    .foregroundStyle(themeManager.currentTheme.primaryText)
+            }
+
+            Spacer()
         }
         .padding(16)
         .frame(width: 280)
+        .background(themeManager.currentTheme.sidebarBG)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(color: .black.opacity(0.15), radius: 12)
     }
 }
