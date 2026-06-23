@@ -35,19 +35,19 @@ enum AppTheme: String, CaseIterable {
 
     var primaryText: Color {
         switch self {
-        case .classic: return Color(hex: "#3A3025")
-        case .kraft: return Color(hex: "#2E2518")
-        case .night: return Color(hex: "#D5C8B0")
-        case .eyeCare: return Color(hex: "#2A3528")
+        case .classic: return Color(hex: "#1A1410")
+        case .kraft: return Color(hex: "#1A1208")
+        case .night: return Color(hex: "#EDE4D0")
+        case .eyeCare: return Color(hex: "#1A2418")
         }
     }
 
     var secondaryText: Color {
         switch self {
-        case .classic: return Color(hex: "#6B5A40")
-        case .kraft: return Color(hex: "#5A4A3A")
-        case .night: return Color(hex: "#A09080")
-        case .eyeCare: return Color(hex: "#4A5A42")
+        case .classic: return Color(hex: "#4A3A28")
+        case .kraft: return Color(hex: "#3E3020")
+        case .night: return Color(hex: "#C0B090")
+        case .eyeCare: return Color(hex: "#2E3E28")
         }
     }
 

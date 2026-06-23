@@ -266,7 +266,7 @@ enum EPUBScripts {
     static let cssTemplate: String = """
     :root {
       --reader-bg: #F5EFE3;
-      --reader-fg: #2E2518;
+      --reader-fg: #1A1208;
       --reader-font-size: 16px;
       --reader-line-height: 2.10;
     }
