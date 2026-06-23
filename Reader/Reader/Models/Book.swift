@@ -8,7 +8,7 @@ final class Book {
     var author: String?
     var coverPath: String?
     var filePath: String
-    var fileTypeRaw: String
+    var fileTypeRaw: String = FileType.epub.rawValue
     var lastRead: Date?
     var progress: Double
     var isFavorite: Bool

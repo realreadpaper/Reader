@@ -7,22 +7,35 @@ final class RenderCoordinator {
     var currentChapter: Int = 0
     var progress: Double = 0
     var epubMetadata: EPUBMetadata?
+    var pdfDocument: PDFDocument?
     var pdfPageCount: Int = 0
     var pdfCurrentPage: Int = 0
     var showTOC: Bool = false
     var showSearch: Bool = false
     var showFontPanel: Bool = false
     var isLoading: Bool = false
+    var loadError: String?
 
     init(book: Book) {
         self.book = book
     }
 
-    func loadEPUB() async {
-        guard book.fileType == .epub else { return }
+    func load() async {
         isLoading = true
+        loadError = nil
         defer { isLoading = false }
 
+        switch book.fileType {
+        case .epub:
+            await loadEPUB()
+        case .mobi:
+            await loadMOBI()
+        case .pdf:
+            loadPDF()
+        }
+    }
+
+    private func loadEPUB() async {
         let filePath = book.filePath
         let metadata: EPUBMetadata? = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -31,14 +44,16 @@ final class RenderCoordinator {
                 continuation.resume(returning: result)
             }
         }
-        self.epubMetadata = metadata
+        if let metadata {
+            self.epubMetadata = metadata
+            self.currentChapter = 0
+            self.progress = 0
+        } else {
+            self.loadError = "EPUB 解析失败"
+        }
     }
 
-    func loadMOBI() async {
-        guard book.fileType == .mobi else { return }
-        isLoading = true
-        defer { isLoading = false }
-
+    private func loadMOBI() async {
         let filePath = book.filePath
         let metadata: EPUBMetadata? = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -47,7 +62,7 @@ final class RenderCoordinator {
                     continuation.resume(returning: nil)
                     return
                 }
-                guard let epubURL = try? converter.convertToEPUB(mobiURL: URL(fileURLWithPath: filePath)) else {
+                guard let epubURL = try? converter.convertToEPUBSync(mobiURL: URL(fileURLWithPath: filePath)) else {
                     continuation.resume(returning: nil)
                     return
                 }
@@ -56,16 +71,25 @@ final class RenderCoordinator {
                 continuation.resume(returning: result)
             }
         }
-        self.epubMetadata = metadata
+        if let metadata {
+            self.epubMetadata = metadata
+            self.currentChapter = 0
+            self.progress = 0
+        } else {
+            self.loadError = "MOBI 转换失败（需要安装 calibre）"
+        }
     }
 
-    func loadPDF() {
-        guard book.fileType == .pdf else { return }
-        if let document = PDFDocument(url: URL(fileURLWithPath: book.filePath)) {
-            pdfPageCount = document.pageCount
-            pdfCurrentPage = document.pageCount > 0 ? 1 : 0
-            progress = pdfPageCount > 0 ? 1.0 / Double(pdfPageCount) : 0
+    private func loadPDF() {
+        let url = URL(fileURLWithPath: book.filePath)
+        guard let document = PDFDocument(url: url) else {
+            self.loadError = "PDF 加载失败"
+            return
         }
+        self.pdfDocument = document
+        self.pdfPageCount = document.pageCount
+        self.pdfCurrentPage = 1
+        self.progress = document.pageCount > 0 ? 1.0 / Double(document.pageCount) : 0
     }
 
     func updatePDFProgress(currentPage: Int, totalPages: Int) {
@@ -103,7 +127,7 @@ final class RenderCoordinator {
 
     var currentTitle: String {
         if book.fileType == .pdf {
-            return "第 \(pdfCurrentPage) 页"
+            return pdfPageCount > 0 ? "第 \(pdfCurrentPage) 页" : book.title
         }
         guard currentChapter < tocEntries.count else { return book.title }
         return tocEntries[currentChapter].title
@@ -111,10 +135,11 @@ final class RenderCoordinator {
 
     func navigateToChapter(_ index: Int) {
         if book.fileType == .pdf {
-            pdfCurrentPage = index + 1
-            progress = pdfPageCount > 0 ? Double(index + 1) / Double(pdfPageCount) : 0
+            let clamped = max(0, min(index, max(0, pdfPageCount - 1)))
+            pdfCurrentPage = clamped + 1
+            progress = pdfPageCount > 0 ? Double(clamped + 1) / Double(pdfPageCount) : 0
         } else {
-            guard index < chapters.count else { return }
+            guard index >= 0, index < chapters.count else { return }
             currentChapter = index
         }
     }

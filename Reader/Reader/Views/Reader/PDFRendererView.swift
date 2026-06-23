@@ -7,38 +7,45 @@ struct PDFRendererView: View {
     let themeManager: ThemeManager
 
     var body: some View {
-        PDFKitView(
-            url: URL(fileURLWithPath: book.filePath),
-            coordinator: coordinator
+        PDFKitContainerView(
+            document: coordinator.pdfDocument,
+            coordinator: coordinator,
+            theme: themeManager.currentTheme
         )
     }
 }
 
-struct PDFKitView: NSViewRepresentable {
-    let url: URL
+struct PDFKitContainerView: NSViewRepresentable {
+    let document: PDFDocument?
     let coordinator: RenderCoordinator
+    let theme: AppTheme
 
     func makeNSView(context: Context) -> PDFView {
         let pdfView = PDFView()
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
+        pdfView.backgroundColor = NSColor(theme.contentBG)
         pdfView.delegate = context.coordinator
 
-        if let document = PDFDocument(url: url) {
+        if let document {
             pdfView.document = document
-            let pageCount = document.pageCount
-            DispatchQueue.main.async {
-                coordinator.pdfPageCount = pageCount
-                coordinator.pdfCurrentPage = 1
-                coordinator.progress = pageCount > 0 ? 1.0 / Double(pageCount) : 0
+            if document.pageCount > 0 {
+                if let page = document.page(at: 0) {
+                    pdfView.go(to: page)
+                }
             }
         }
 
         return pdfView
     }
 
-    func updateNSView(_ pdfView: PDFView, context: Context) {}
+    func updateNSView(_ pdfView: PDFView, context: Context) {
+        pdfView.backgroundColor = NSColor(theme.contentBG)
+        if let document, pdfView.document !== document {
+            pdfView.document = document
+        }
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(coordinator: coordinator)
@@ -55,12 +62,9 @@ struct PDFKitView: NSViewRepresentable {
         func pdfView(_ pdfView: PDFView, willChangePageTo pageIndex: Int) {
             guard pageIndex != lastPageIndex else { return }
             lastPageIndex = pageIndex
-
             let totalPages = pdfView.document?.pageCount ?? 0
             DispatchQueue.main.async {
-                self.coordinator.pdfCurrentPage = pageIndex + 1
-                self.coordinator.pdfPageCount = totalPages
-                self.coordinator.progress = totalPages > 0 ? Double(pageIndex) / Double(totalPages) : 0
+                self.coordinator.updatePDFProgress(currentPage: pageIndex, totalPages: totalPages)
             }
         }
     }

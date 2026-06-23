@@ -17,17 +17,13 @@ final class MOBIConverter {
         converterPath != nil
     }
 
-    func convertToEPUB(mobiURL: URL) throws -> URL {
+    func convertToEPUBSync(mobiURL: URL) throws -> URL {
         guard let converterPath else {
             throw MOBIError.converterNotFound
         }
 
         let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(mobiURL.deletingPathExtension().lastPathComponent).epub")
-
-        if FileManager.default.fileExists(atPath: outputURL.path) {
-            return outputURL
-        }
+            .appendingPathComponent("\(mobiURL.deletingPathExtension().lastPathComponent)-\(UUID().uuidString).epub")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: converterPath)

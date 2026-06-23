@@ -11,13 +11,13 @@ struct EPUBMetadata {
     let author: String?
     let chapters: [EPUBChapter]
     let tocEntries: [(title: String, chapterIndex: Int)]
+    let resourceDirectory: URL?
 }
 
 final class EPUBParser {
 
     func parse(fileAt url: URL) throws -> EPUBMetadata {
         let unzipDir = try unzipEPUB(at: url)
-        defer { try? FileManager.default.removeItem(at: unzipDir) }
 
         let opfURL = try findOPF(in: unzipDir)
         let metadata = try parseOPF(at: opfURL)
@@ -36,7 +36,8 @@ final class EPUBParser {
             title: metadata.title,
             author: metadata.author,
             chapters: chapters,
-            tocEntries: tocEntries
+            tocEntries: tocEntries,
+            resourceDirectory: unzipDir
         )
     }
 
@@ -66,14 +67,17 @@ final class EPUBParser {
 
         let containerXML = try String(contentsOf: containerPath, encoding: .utf8)
 
-        guard let range = containerXML.range(of: #"full-path"\s*=\s*"[^"]*""#),
-              let pathRange = containerXML[range].range(of: #""[^"]*"$"#) else {
+        let pattern = #"full-path\s*=\s*"([^"]+)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(
+                in: containerXML,
+                range: NSRange(containerXML.startIndex..., in: containerXML)
+              ),
+              let pathRange = Range(match.range(at: 1), in: containerXML) else {
             throw EPUBError.invalidContainer
         }
 
-        var fullPath = String(containerXML[pathRange])
-        fullPath.removeFirst()
-        fullPath.removeLast()
+        let fullPath = String(containerXML[pathRange])
 
         return directory.appendingPathComponent(fullPath)
     }
