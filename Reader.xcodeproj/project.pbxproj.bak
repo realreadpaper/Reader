@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 75;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -32,7 +32,6 @@
 		B67A9F13C435E006DD5303BD /* HighlightMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19305A4F339971F19A8C1F72 /* HighlightMenuView.swift */; };
 		B8E2371808F134A23E13F7E8 /* RenderCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CC97C06C16319A74A71FC28 /* RenderCoordinator.swift */; };
 		BFED300BB3ABAD504004C088 /* ReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760000652DF1850431984E99 /* ReaderApp.swift */; };
-		C1968A969B72551A5DBF2CA4 /* BookParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B29EB0981B48E9BA8B42B4 /* BookParser.swift */; };
 		CC458817E4DA7BDE6F1C76CD /* BottomBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88EC68083FF6F0F474524204 /* BottomBarView.swift */; };
 		D0FF402BC9A6BF1805D9215F /* epub-themes.css in Resources */ = {isa = PBXBuildFile; fileRef = 2460853BDD1479FC453708B5 /* epub-themes.css */; };
 		D78E45EFBBD8FB07225B99DF /* FontPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1ED45E34AFF504BF3DC2FF /* FontPanelView.swift */; };
@@ -40,30 +39,17 @@
 		F8624D64C4346D7D6A8456DA /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E2F514D1D62A6C752916AC /* SidebarView.swift */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXContainerItemProxy section */
-		BB091BFCB75886AD99816568 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 6C1D9791AA3E6017BFAFC4E3 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 4FF2F419C3D2B210459D9DF7;
-			remoteInfo = Reader;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin PBXFileReference section */
 		00DE9FDA8385CD4F5791F59F /* TOCView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOCView.swift; sourceTree = "<group>"; };
 		19305A4F339971F19A8C1F72 /* HighlightMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightMenuView.swift; sourceTree = "<group>"; };
 		1A59C8116DE0176BFAA9C288 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1DE9C206C370BEB57BFF8F79 /* ProgressRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressRingView.swift; sourceTree = "<group>"; };
-		20B29EB0981B48E9BA8B42B4 /* BookParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookParser.swift; sourceTree = "<group>"; };
 		2446C72DA87D829F1CD0DFB6 /* ReaderSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettings.swift; sourceTree = "<group>"; };
 		2460853BDD1479FC453708B5 /* epub-themes.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "epub-themes.css"; sourceTree = "<group>"; };
 		42EF1DAD93B93180D3D018E3 /* PDFRendererView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFRendererView.swift; sourceTree = "<group>"; };
-		5989301DCA3C30A5DF370F89 /* .keep */ = {isa = PBXFileReference; path = .keep; sourceTree = "<group>"; };
 		5EC03772B131879FE0B538C9 /* BookListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookListView.swift; sourceTree = "<group>"; };
 		639FC7D4BDEA65C9F830400B /* Book.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book.swift; sourceTree = "<group>"; };
 		67EBFA2ACA64502F10A3D555 /* SearchPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPanelView.swift; sourceTree = "<group>"; };
-		68FE5DFA26167FF456F60EA0 /* ReaderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ReaderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6CC97C06C16319A74A71FC28 /* RenderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderCoordinator.swift; sourceTree = "<group>"; };
 		6EFA225B54807F666E163731 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
 		7430B611700E533ED8139530 /* BookRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRowView.swift; sourceTree = "<group>"; };
@@ -85,7 +71,6 @@
 		F078D337B80D01156DD0FA21 /* MOBIConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIConverter.swift; sourceTree = "<group>"; };
 		F11A2616F981A1FAD231B038 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		FF9F0E8C276E56551D158D91 /* Bookmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bookmark.swift; sourceTree = "<group>"; };
-		FFA49EE0971409CF19DEFFE2 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -129,14 +114,6 @@
 			path = Reader;
 			sourceTree = "<group>";
 		};
-		472950217FA481E5347A4F2B /* Parsers */ = {
-			isa = PBXGroup;
-			children = (
-				20B29EB0981B48E9BA8B42B4 /* BookParser.swift */,
-			);
-			path = Parsers;
-			sourceTree = "<group>";
-		};
 		609712F69F467D4EE49E218C /* Reader */ = {
 			isa = PBXGroup;
 			children = (
@@ -158,7 +135,6 @@
 				2446C72DA87D829F1CD0DFB6 /* ReaderSettings.swift */,
 				EA03B469B24B9A07B9A595D8 /* StorageService.swift */,
 				B4F8BD3CE091E5B47E5FAB7B /* ThemeManager.swift */,
-				472950217FA481E5347A4F2B /* Parsers */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -176,26 +152,8 @@
 			isa = PBXGroup;
 			children = (
 				6C401AC01CA4C850A44E8339 /* Reader */,
-				8024D51E4918F5DD3E49EB35 /* ReaderTests */,
 				A97F85522AF62C54C5BF2D39 /* Products */,
 			);
-			sourceTree = "<group>";
-		};
-		7DDC2D8F14874F55DDE6AD7A /* Fixtures */ = {
-			isa = PBXGroup;
-			children = (
-				FFA49EE0971409CF19DEFFE2 /* .gitkeep */,
-			);
-			path = Fixtures;
-			sourceTree = "<group>";
-		};
-		8024D51E4918F5DD3E49EB35 /* ReaderTests */ = {
-			isa = PBXGroup;
-			children = (
-				5989301DCA3C30A5DF370F89 /* .keep */,
-				7DDC2D8F14874F55DDE6AD7A /* Fixtures */,
-			);
-			path = ReaderTests;
 			sourceTree = "<group>";
 		};
 		8652B1FE4E4B88FB7949E802 /* Toolbar */ = {
@@ -225,7 +183,6 @@
 			isa = PBXGroup;
 			children = (
 				7D1BE4C99722DBE37CC537AA /* Reader.app */,
-				68FE5DFA26167FF456F60EA0 /* ReaderTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -253,24 +210,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		39EE394081F27533C5E85A19 /* ReaderTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 3D9F0A17A66886D65073BEE3 /* Build configuration list for PBXNativeTarget "ReaderTests" */;
-			buildPhases = (
-				B80F8FD4C06287D16F23CC1C /* Sources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				2DC48F8179AAB89C2D79AE84 /* PBXTargetDependency */,
-			);
-			name = ReaderTests;
-			packageProductDependencies = (
-			);
-			productName = ReaderTests;
-			productReference = 68FE5DFA26167FF456F60EA0 /* ReaderTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 		4FF2F419C3D2B210459D9DF7 /* Reader */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 21E55A0F7442A2C8FA97EE36 /* Build configuration list for PBXNativeTarget "Reader" */;
@@ -318,7 +257,6 @@
 			projectRoot = "";
 			targets = (
 				4FF2F419C3D2B210459D9DF7 /* Reader */,
-				39EE394081F27533C5E85A19 /* ReaderTests */,
 			);
 		};
 /* End PBXProject section */
@@ -345,7 +283,6 @@
 				5B1C67C57EAA4D8BB1AF3014 /* Book.swift in Sources */,
 				2E386A0E549C5444F9226D39 /* BookLibrary.swift in Sources */,
 				12D7461AD0486C40AA5377AF /* BookListView.swift in Sources */,
-				C1968A969B72551A5DBF2CA4 /* BookParser.swift in Sources */,
 				94D4C0C30FC60AF3268B57C6 /* BookRowView.swift in Sources */,
 				2DC21B0004653C0229A34A31 /* Bookmark.swift in Sources */,
 				CC458817E4DA7BDE6F1C76CD /* BottomBarView.swift in Sources */,
@@ -372,62 +309,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		B80F8FD4C06287D16F23CC1C /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
-/* Begin PBXTargetDependency section */
-		2DC48F8179AAB89C2D79AE84 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 4FF2F419C3D2B210459D9DF7 /* Reader */;
-			targetProxy = BB091BFCB75886AD99816568 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
-
 /* Begin XCBuildConfiguration section */
-		3F1DBA0BDB833B5521A69526 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				COMBINE_HIDPI_IMAGES = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.reader.ReaderTests;
-				SDKROOT = macosx;
-				SWIFT_VERSION = 5.9;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Reader.app/Contents/MacOS/Reader";
-			};
-			name = Debug;
-		};
-		47A829053DA93F84E2B03692 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				COMBINE_HIDPI_IMAGES = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.reader.ReaderTests;
-				SDKROOT = macosx;
-				SWIFT_VERSION = 5.9;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Reader.app/Contents/MacOS/Reader";
-			};
-			name = Release;
-		};
 		4BE7A8885E008B33AF7A31A8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -607,15 +491,6 @@
 			buildConfigurations = (
 				7F9D220D7AE34A3143B5616E /* Debug */,
 				756433C7EE5D1E4BEFB28CC2 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
-		3D9F0A17A66886D65073BEE3 /* Build configuration list for PBXNativeTarget "ReaderTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				3F1DBA0BDB833B5521A69526 /* Debug */,
-				47A829053DA93F84E2B03692 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
