@@ -65,17 +65,22 @@ struct SidebarView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(theme.currentTheme.secondaryText)
                 TextField("筛选书名", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.caption)
                     .foregroundStyle(theme.currentTheme.primaryText)
+                    .tint(theme.currentTheme.accent)
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(theme.currentTheme.border.opacity(0.4))
+            .padding(.vertical, 6)
+            .background(theme.currentTheme.contentBG)
             .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(theme.currentTheme.border, lineWidth: 0.5)
+            )
             .padding(.horizontal, 8)
             .padding(.top, 8)
 

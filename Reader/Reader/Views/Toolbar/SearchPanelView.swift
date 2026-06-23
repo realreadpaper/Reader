@@ -19,50 +19,68 @@ struct SearchPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
+                    .font(.caption)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
 
-                TextField("搜索...", text: $searchText)
+                TextField("搜索内容...", text: $searchText)
                     .textFieldStyle(.plain)
+                    .font(.subheadline)
                     .foregroundStyle(themeManager.currentTheme.primaryText)
+                    .tint(themeManager.currentTheme.accent)
                     .onSubmit { performSearch() }
                     .submitLabel(.search)
 
                 if !epubResults.isEmpty || !coordinator.pdfSearchResults.isEmpty {
                     Text(totalResultsText)
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(themeManager.currentTheme.secondaryText)
+                        .monospacedDigit()
                 }
+
+                Divider()
+                    .frame(height: 14)
+                    .background(themeManager.currentTheme.border)
 
                 Button(action: previousResult) {
                     Image(systemName: "chevron.up")
+                        .font(.caption)
                 }
                 .buttonStyle(.plain)
+                .foregroundStyle(totalResultsCount > 0 ? themeManager.currentTheme.secondaryText : themeManager.currentTheme.border)
                 .disabled(totalResultsCount == 0)
 
                 Button(action: nextResult) {
                     Image(systemName: "chevron.down")
+                        .font(.caption)
                 }
                 .buttonStyle(.plain)
+                .foregroundStyle(totalResultsCount > 0 ? themeManager.currentTheme.secondaryText : themeManager.currentTheme.border)
                 .disabled(totalResultsCount == 0)
 
                 Button(action: onClose) {
                     Image(systemName: "xmark")
+                        .font(.caption)
                 }
                 .buttonStyle(.plain)
+                .foregroundStyle(themeManager.currentTheme.secondaryText)
             }
-            .padding(10)
-            .background(themeManager.currentTheme.border)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(themeManager.currentTheme.contentBG)
             .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(themeManager.currentTheme.border, lineWidth: 0.5)
+            )
 
             resultList
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: 240)
+        .frame(maxWidth: 480, maxHeight: 200)
         .background(themeManager.currentTheme.sidebarBG)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .shadow(color: .black.opacity(0.15), radius: 12)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
     }
 
     @MainActor
@@ -76,9 +94,10 @@ struct SearchPanelView: View {
                 Text("无匹配结果")
                     .font(.caption)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
-                    .padding(.top, 8)
+                    .padding(.vertical, 12)
             }
         } else {
+            Divider().background(themeManager.currentTheme.border)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     if coordinator.book.fileType == .pdf {
@@ -89,7 +108,6 @@ struct SearchPanelView: View {
                                 searchRow(title: result.title, snippet: result.snippet)
                             }
                             .buttonStyle(.plain)
-                            Divider().background(themeManager.currentTheme.border)
                         }
                     } else {
                         ForEach(epubResults) { result in
@@ -99,7 +117,6 @@ struct SearchPanelView: View {
                                 searchRow(title: result.chapterTitle, snippet: result.snippet)
                             }
                             .buttonStyle(.plain)
-                            Divider().background(themeManager.currentTheme.border)
                         }
                     }
                 }
@@ -108,18 +125,19 @@ struct SearchPanelView: View {
     }
 
     private func searchRow(title: String, snippet: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.caption)
                 .fontWeight(.medium)
                 .foregroundStyle(themeManager.currentTheme.primaryText)
             Text(snippet)
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(themeManager.currentTheme.secondaryText)
-                .lineLimit(2)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     @MainActor
