@@ -54,21 +54,23 @@ struct MOBIHeader {
         }
 
         let mobiVersion = record0.readUInt32BE(at: 36)
+        // MOBI header internal offsets: firstTextRecord at 24, lastTextRecord at 28, firstImageRecord at 108
+        // record0 absolute offsets: add 16
         let firstTextRecord: Int
-        if 44 <= record0.count - 4 {
-            firstTextRecord = Int(record0.readUInt32BE(at: 44))
+        if record0.count >= 44 {
+            firstTextRecord = Int(record0.readUInt32BE(at: 40))
         } else {
             firstTextRecord = 1
         }
         let lastTextRecord: Int
-        if 48 <= record0.count - 4 {
-            lastTextRecord = Int(record0.readUInt32BE(at: 48))
+        if record0.count >= 48 {
+            lastTextRecord = Int(record0.readUInt32BE(at: 44))
         } else {
             lastTextRecord = 1
         }
         let firstImageRecord: Int
-        if 108 <= record0.count - 4 {
-            firstImageRecord = Int(record0.readUInt32BE(at: 108))
+        if record0.count >= 124 {
+            firstImageRecord = Int(record0.readUInt32BE(at: 124))
         } else {
             firstImageRecord = 0
         }
