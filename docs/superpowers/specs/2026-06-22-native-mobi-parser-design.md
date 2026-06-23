@@ -153,6 +153,46 @@ final class MOBIParser: BookParser {
 - 关键修复：用 `Task.detached(priority: .userInitiated)` 包 `Process.run/waitUntilExit`，不阻塞主 actor
 - 失败时抛 `BookParseError.calibreConversionFailed(stderr:)`
 
+## PDF 色调控制（PDFContainerView + CIFilter）
+
+完全自研 PDF 渲染器不现实（规范 1000+ 页）。用 CIFilter 给 PDFKit 的输出叠主题色调，保留全部交互能力。
+
+### 实现
+
+```
+PDFContainerView (新)
+  ├── NSView 容器，背景色 = themeManager.currentTheme.contentBG
+  └── PDFView (现有)
+        ├── underPageBackgroundColor = contentBG
+        └── contentFilters = [ 按主题动态切换 ]
+```
+
+**滤镜映射**
+
+| 主题 | 滤镜 |
+|---|---|
+| `.classic` / `.kraft` | 无滤镜；容器背景提供暖底 |
+| `.eyeCare` | 轻量 `CIColorControls(saturation: 0.85)` + 绿色 5% 叠加 |
+| `.night` | `CIColorInvert` + `CIColorControls(brightness: -0.15, contrast: 1.05)` |
+
+**接口**
+- 新增 `PDFRendererView` 外层包装 `PDFContainerView`，接收 `themeManager` 订阅主题变化
+- 主题切换时只重算 `contentFilters`，不重载 `PDFDocument`
+- `FontPanelView` 新增"PDF 滤镜开关"（默认开），让用户对个别 PDF 关闭滤镜应对兼容问题
+
+### 落地清单
+
+- `Views/Reader/PDFContainerView.swift`（新，~100 行）：NSView 容器 + 滤镜管理
+- 改造 `PDFRendererView`：包一层 `PDFContainerView`，传 themeManager
+- `RenderCoordinator` 无需改动（输出仍是 `PDFDocument`）
+- `ReaderSettings` 加 `pdfFilterEnabled: Bool`（默认 true），持久化到 UserDefaults
+
+### 取舍
+
+1. **保留文字选择/搜索/缩放/目录**：PDFKit 内建能力全部可用
+2. **滤镜对扫描版 PDF 效果略差**：扫描页本身就是图片，反色后观感与原生 EPUB 反色类似；用户可以一键关滤镜
+3. **不实现"重排/重排为 EPUB"**：PDF 重排是另一个大工程，超出本次 scope
+
 ## Registry + RenderCoordinator 改造
 
 ```swift
@@ -267,7 +307,9 @@ ReaderTests/
 6. 实现 `KF8IndexReader` + `MOBIParser.parseKF8`
 7. 重构 `MOBIConverter` 为异步非阻塞，集成到 `MOBIParser.parseViaCalibre`
 8. 改造 `RenderCoordinator.load()` 走 Registry
-9. 新增 `ReaderTests` target，补单测
-10. 手测验收 + 清理旧的 `loadEPUB/loadMOBI/loadPDF` 方法
+9. 新增 `PDFContainerView` + 主题滤镜映射；改造 `PDFRendererView` 包一层
+10. `ReaderSettings` 加 `pdfFilterEnabled`，`FontPanelView` 加开关
+11. 新增 `ReaderTests` target，补单测
+12. 手测验收 + 清理旧的 `loadEPUB/loadMOBI/loadPDF` 方法
 
 详细步骤与验收门槛见后续实施计划（writing-plans）。
