@@ -36,6 +36,8 @@ targets:
     platform: macOS
     sources:
       - ReaderTests
+    resources:
+      - ReaderTests/Fixtures
     dependencies:
       - target: Reader
     settings:
