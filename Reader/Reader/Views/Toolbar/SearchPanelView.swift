@@ -147,14 +147,31 @@ struct SearchPanelView: View {
                 .font(.caption)
                 .fontWeight(.medium)
                 .foregroundStyle(themeManager.currentTheme.primaryText)
-            Text(snippet)
+            Text(highlightedSnippet(snippet))
                 .font(.caption2)
-                .foregroundStyle(themeManager.currentTheme.secondaryText)
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    private func highlightedSnippet(_ snippet: String) -> AttributedString {
+        var attr = AttributedString(snippet)
+        attr.foregroundColor = themeManager.currentTheme.secondaryText
+        guard !searchText.isEmpty else { return attr }
+        let nsSnippet = snippet as NSString
+        var searchRange = NSRange(location: 0, length: nsSnippet.length)
+        while searchRange.location < nsSnippet.length {
+            let found = nsSnippet.range(of: searchText, options: .caseInsensitive, range: searchRange)
+            guard found.location != NSNotFound else { break }
+            if let attrRange = Range(found, in: attr) {
+                attr[attrRange].foregroundColor = themeManager.currentTheme.accent
+                attr[attrRange].font = .caption2.weight(.semibold)
+            }
+            searchRange = NSRange(location: found.location + found.length, length: nsSnippet.length - found.location - found.length)
+        }
+        return attr
     }
 
     @MainActor
