@@ -134,4 +134,38 @@ struct MOBIHeader {
             coverRecordIndex: coverRecordIndex
         )
     }
+
+    /// 接收完整 PalmDatabase，能检测跨记录的 KF8 BOUNDARY 标识
+    static func read(pdb: PalmDatabase) throws -> MOBIHeader {
+        guard let record0 = pdb.records.first else {
+            throw BookParseError.corruptedFile(detail: "无 record0")
+        }
+        let base = try read(record0: record0)
+
+        // 优先看 record0 自身的 version == 8
+        if pdb.records.first?.count ?? 0 >= 40,
+           record0.readUInt32BE(at: 36) == 8 {
+            return base
+        }
+        // 再看 records[1] 是否是 BOUNDARY
+        if pdb.records.count > 1 {
+            let rec1 = pdb.records[1]
+            if rec1.count >= 20 {
+                let id = String(data: rec1.subdata(in: 16..<20), encoding: .ascii) ?? ""
+                if id == "BOUNDARY" {
+                    return MOBIHeader(
+                        variant: .kf8,
+                        compression: base.compression,
+                        firstTextRecord: 1,
+                        lastTextRecord: max(1, pdb.records.count - 2),
+                        firstImageRecord: base.firstImageRecord,
+                        title: base.title,
+                        author: base.author,
+                        coverRecordIndex: base.coverRecordIndex
+                    )
+                }
+            }
+        }
+        return base
+    }
 }

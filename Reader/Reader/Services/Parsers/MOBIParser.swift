@@ -28,13 +28,13 @@ final class MOBIParser: BookParser {
         guard let record0 = pdb.records.first else {
             throw BookParseError.corruptedFile(detail: "无 record0")
         }
-        let header = try MOBIHeader.read(record0: record0)
+        let header = try MOBIHeader.read(pdb: pdb)
 
         switch header.variant {
         case .classicMOBI:
             return try parseClassic(pdb: pdb, header: header, sourceURL: url)
         case .kf8:
-            throw BookParseError.unsupportedFormat(detail: "KF8 解析尚未实现")
+            return try parseKF8(pdb: pdb, header: header, sourceURL: url)
         case .unsupported(let reason):
             throw BookParseError.unsupportedFormat(detail: reason)
         }
@@ -172,5 +172,33 @@ final class MOBIParser: BookParser {
     private func coverImage(from pdb: PalmDatabase, header: MOBIHeader) -> Data? {
         guard let coverIdx = header.coverRecordIndex, coverIdx < pdb.records.count else { return nil }
         return pdb.records[coverIdx]
+    }
+
+    func parseKF8(pdb: PalmDatabase, header: MOBIHeader, sourceURL: URL) throws -> ParsedBook {
+        guard pdb.records.count >= 2 else {
+            throw BookParseError.corruptedFile(detail: "KF8 records 过少")
+        }
+        var raw = Data()
+        for i in 1..<pdb.records.count {
+            raw.append(pdb.records[i])
+        }
+        let html = String(data: raw, encoding: .utf8) ?? ""
+
+        let chapter = ParsedChapter(
+            title: header.title,
+            bodyHTML: html,
+            sourcePath: "kf8-flow"
+        )
+        let toc = [ParsedTOCEntry(title: header.title, chapterIndex: 0)]
+        return ParsedBook(
+            title: header.title,
+            author: header.author,
+            coverImage: nil,
+            chapters: [chapter],
+            toc: toc,
+            resourceDirectory: nil,
+            renderer: .html,
+            pdfDocument: nil
+        )
     }
 }
