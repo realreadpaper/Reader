@@ -178,30 +178,72 @@ final class MOBIParser: BookParser {
     }
 
     func parseKF8(pdb: PalmDatabase, header: MOBIHeader, sourceURL: URL) throws -> ParsedBook {
-        guard pdb.records.count >= 2 else {
-            throw BookParseError.corruptedFile(detail: "KF8 records 过少")
+        guard let kf8Data = extractKF8Data(from: pdb) else {
+            throw BookParseError.corruptedFile(detail: "无法提取 KF8 ZIP 数据")
         }
-        var raw = Data()
-        for i in 1..<pdb.records.count {
-            raw.append(pdb.records[i])
-        }
-        let html = String(data: raw, encoding: .utf8) ?? ""
 
-        let chapter = ParsedChapter(
-            title: header.title,
-            bodyHTML: html,
-            sourcePath: "kf8-flow"
-        )
-        let toc = [ParsedTOCEntry(title: header.title, chapterIndex: 0)]
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReaderMOBI-KF8")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        let tmpEPUB = tmpDir.appendingPathComponent("\(UUID().uuidString).epub")
+        try kf8Data.write(to: tmpEPUB)
+        defer { try? FileManager.default.removeItem(at: tmpEPUB) }
+
+        let epubParser = EPUBParser()
+        let metadata = try epubParser.parse(fileAt: tmpEPUB)
+
+        let chapters = metadata.chapters.map { ch in
+            ParsedChapter(title: ch.title, bodyHTML: ch.htmlContent, sourcePath: ch.fileName)
+        }
+        let toc = metadata.tocEntries.map { entry in
+            ParsedTOCEntry(title: entry.title, chapterIndex: entry.chapterIndex)
+        }
+
+        let cover: Data? = {
+            if let idx = header.coverRecordIndex, idx < pdb.records.count {
+                return pdb.records[idx]
+            }
+            return nil
+        }()
+
         return ParsedBook(
             title: header.title,
             author: header.author,
-            coverImage: nil,
-            chapters: [chapter],
+            coverImage: cover,
+            chapters: chapters,
             toc: toc,
-            resourceDirectory: nil,
+            resourceDirectory: metadata.resourceDirectory,
             renderer: .html,
             pdfDocument: nil
         )
+    }
+
+    /// 从 PalmDB 记录中提取 KF8 ZIP 数据
+    private func extractKF8Data(from pdb: PalmDatabase) -> Data? {
+        let pkSignature: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
+
+        // 纯 KF8: records[1]+ 是 ZIP
+        // 混合 MOBI+KF8: records[1] 是 BOUNDARY，records[2]+ 是 ZIP
+        let startRecord: Int
+        if pdb.records.count > 1 {
+            let rec1 = pdb.records[1]
+            if rec1.count >= 20,
+               let id = String(data: rec1.subdata(in: 16..<20), encoding: .ascii),
+               id == "BOUNDARY" {
+                startRecord = 2
+            } else {
+                startRecord = 1
+            }
+        } else {
+            return nil
+        }
+
+        var combined = Data()
+        for i in startRecord..<pdb.records.count {
+            combined.append(pdb.records[i])
+        }
+
+        guard let pkRange = combined.range(of: Data(pkSignature)) else { return nil }
+        return combined.subdata(in: pkRange.lowerBound..<combined.count)
     }
 }
