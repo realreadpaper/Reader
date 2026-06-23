@@ -24,6 +24,7 @@ struct CachedTOCEntry: Codable {
 
 final class BookParseCache {
     static let shared = BookParseCache()
+    private static let cacheFormatVersion = "html-pages-v2"
 
     private let cacheDir: URL
     private let fileManager = FileManager.default
@@ -42,7 +43,7 @@ final class BookParseCache {
         }
         let sizeStr = String(size)
         let dateStr = String(modDate.timeIntervalSince1970)
-        let raw = "\(sizeStr)-\(dateStr)"
+        let raw = "\(Self.cacheFormatVersion)-\(sizeStr)-\(dateStr)"
         return raw.data(using: .utf8)?.base64EncodedString().replacingOccurrences(of: "=", with: "")
     }
 

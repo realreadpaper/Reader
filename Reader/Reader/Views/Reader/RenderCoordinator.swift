@@ -10,6 +10,8 @@ final class RenderCoordinator {
     var currentChapter: Int = 0
     var progress: Double = 0
     var epubMetadata: EPUBMetadata?
+    var epubPageCount: Int = 0
+    var epubCurrentPage: Int = 0
     var pdfDocument: PDFDocument?
     var pdfPageCount: Int = 0
     var pdfCurrentPage: Int = 0
@@ -82,6 +84,8 @@ final class RenderCoordinator {
             )
             self.epubMetadata = metadata
             self.currentChapter = min(currentChapter, max(0, metadata.chapters.count - 1))
+            self.epubCurrentPage = 0
+            self.epubPageCount = 0
         case .pdfKit:
             guard let doc = parsed.pdfDocument else {
                 self.loadError = "PDF 加载失败"
@@ -107,8 +111,16 @@ final class RenderCoordinator {
         scheduleProgressSave()
     }
 
-    func updateEPUBProgress(_ value: Double) {
-        progress = value
+    func updateEPUBProgress(_ metrics: EPUBPageMetrics) {
+        epubCurrentPage = metrics.currentPage + 1
+        epubPageCount = metrics.totalPages
+        if metrics.chapterIndex >= 0, metrics.chapterIndex < chapters.count {
+            currentChapter = metrics.chapterIndex
+        }
+        progress = EPUBProgressPolicy.overallProgress(
+            currentPage: metrics.currentPage,
+            totalPages: metrics.totalPages
+        )
         scheduleProgressSave()
     }
 
@@ -121,7 +133,6 @@ final class RenderCoordinator {
         } else {
             guard index >= 0, index < chapters.count else { return }
             currentChapter = index
-            progress = 0
         }
     }
 
@@ -143,9 +154,18 @@ final class RenderCoordinator {
     var totalChapters: Int {
         switch book.fileType {
         case .epub, .mobi:
-            return chapters.count
+            return epubPageCount > 0 ? epubPageCount : chapters.count
         case .pdf:
             return pdfPageCount
+        }
+    }
+
+    var displayCurrentPage: Int {
+        switch book.fileType {
+        case .epub, .mobi:
+            return epubCurrentPage > 0 ? epubCurrentPage : currentChapter + 1
+        case .pdf:
+            return pdfCurrentPage
         }
     }
 

@@ -10,6 +10,12 @@ private let supportedImportTypes: [UTType] = {
     return types
 }()
 
+enum ReaderViewIdentity {
+    static func id(for book: Book) -> UUID {
+        book.id
+    }
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(ThemeManager.self) private var themeManager
@@ -42,6 +48,7 @@ struct ContentView: View {
                             storageService: storageService,
                             library: library
                         )
+                        .id(ReaderViewIdentity.id(for: book))
                     } else {
                         WelcomeView()
                     }

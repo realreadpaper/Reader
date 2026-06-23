@@ -1,3 +1,4 @@
+import SwiftData
 import XCTest
 @testable import Reader
 
@@ -29,6 +30,32 @@ final class CalibreFallbackTests: XCTestCase {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .appendingPathComponent("Fixtures/minimal.epub")
+    }
+}
+
+final class BookLibraryTests: XCTestCase {
+    @MainActor
+    func testDeleteBookRemovesRecordAndImportedFile() throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let storage = StorageService(modelContext: container.mainContext)
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let library = BookLibrary(storageService: storage, appSupportDirectory: appSupport)
+        let source = appSupport.appendingPathComponent("source.pdf")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try Data("fake pdf".utf8).write(to: source)
+        defer { try? FileManager.default.removeItem(at: appSupport) }
+
+        let book = try library.importBook(at: source)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: book.filePath))
+
+        try library.deleteBook(book)
+
+        XCTAssertTrue(storage.fetchBooks().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: book.filePath))
     }
 }
 

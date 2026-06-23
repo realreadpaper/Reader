@@ -173,9 +173,10 @@ struct ReaderView: View {
                     chapters: coordinator.chapters,
                     resourceDirectory: coordinator.resourceDirectory,
                     currentChapter: $coordinator.currentChapter,
-                    progress: $coordinator.progress,
                     themeManager: themeManager,
                     settings: settings,
+                    initialProgress: coordinator.progress,
+                    onPageMetrics: { coordinator.updateEPUBProgress($0) },
                     onSelection: { text, rect in
                         handleSelection(text: text, rect: rect)
                     }

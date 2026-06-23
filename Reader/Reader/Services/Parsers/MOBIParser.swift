@@ -8,6 +8,7 @@ protocol MOBIConverting {
 extension MOBIConverter: MOBIConverting {}
 
 final class MOBIParser: BookParser {
+    private static let targetHTMLPageSize = 6_000
     private let converter: MOBIConverting
 
     init(converter: MOBIConverting = MOBIConverter()) {
@@ -107,7 +108,7 @@ final class MOBIParser: BookParser {
         BookLog.mobi.info("parseClassic: split into \(pieces.count) chapter pieces")
         let chapters: [ParsedChapter] = pieces.enumerated().map { idx, piece in
             ParsedChapter(
-                title: extractTitle(from: piece) ?? "第 \(idx + 1) 页",
+                title: "第 \(idx + 1) 页",
                 bodyHTML: piece,
                 sourcePath: "classic-mobi-fragment-\(idx)"
             )
@@ -144,8 +145,9 @@ final class MOBIParser: BookParser {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         if pages.count > 1 {
-            BookLog.mobi.info("splitChapters: split by mbp:pagebreak into \(pages.count) pieces")
-            return pages
+            let result = paginatePieces(pages)
+            BookLog.mobi.info("splitChapters: split by mbp:pagebreak into \(pages.count) pieces, paginated into \(result.count) pages")
+            return result
         }
 
         // 策略 2: <h1> 分章
@@ -156,8 +158,9 @@ final class MOBIParser: BookParser {
                 return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : body
             }
             if result.count > 1 {
-                BookLog.mobi.info("splitChapters: split by <h1> into \(result.count) pieces")
-                return result
+                let pages = paginatePieces(result)
+                BookLog.mobi.info("splitChapters: split by <h1> into \(result.count) pieces, paginated into \(pages.count) pages")
+                return pages
             }
         }
 
@@ -169,8 +172,9 @@ final class MOBIParser: BookParser {
                 return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : body
             }
             if result.count > 1 {
-                BookLog.mobi.info("splitChapters: split by <h2> into \(result.count) pieces")
-                return result
+                let pages = paginatePieces(result)
+                BookLog.mobi.info("splitChapters: split by <h2> into \(result.count) pieces, paginated into \(pages.count) pages")
+                return pages
             }
         }
 
@@ -182,8 +186,9 @@ final class MOBIParser: BookParser {
                 return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : body
             }
             if result.count > 1 {
-                BookLog.mobi.info("splitChapters: split by <h3> into \(result.count) pieces")
-                return result
+                let pages = paginatePieces(result)
+                BookLog.mobi.info("splitChapters: split by <h3> into \(result.count) pieces, paginated into \(pages.count) pages")
+                return pages
             }
         }
 
@@ -195,13 +200,14 @@ final class MOBIParser: BookParser {
                 return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : body
             }
             if result.count > 1 {
-                BookLog.mobi.info("splitChapters: split by <hr> into \(result.count) pieces")
-                return result
+                let pages = paginatePieces(result)
+                BookLog.mobi.info("splitChapters: split by <hr> into \(result.count) pieces, paginated into \(pages.count) pages")
+                return pages
             }
         }
 
-        // 策略 6: 按大小自动分页（超过 50KB 的 HTML 按段落边界拆分）
-        if html.count > 50_000 {
+        // 策略 6: 按大小自动分页（超过目标页大小的 HTML 按段落边界拆分）
+        if html.count > Self.targetHTMLPageSize {
             let result = smartSplitBySize(html)
             if result.count > 1 {
                 BookLog.mobi.info("splitChapters: smart split by size into \(result.count) pieces")
@@ -213,39 +219,47 @@ final class MOBIParser: BookParser {
         return [html]
     }
 
+    private func paginatePieces(_ pieces: [String]) -> [String] {
+        pieces.flatMap { smartSplitBySize($0) }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     /// 按大小智能分页：在段落边界处拆分
     private func smartSplitBySize(_ html: String) -> [String] {
-        let maxChunkSize = 30_000
+        let maxChunkSize = Self.targetHTMLPageSize
         var chunks: [String] = []
-        var current = ""
         var lastParagraphEnd = html.startIndex
 
         let paragraphEnders = ["</p>", "</div>", "</blockquote>", "</li>", "</td>"]
         var searchStart = html.startIndex
 
         while searchStart < html.endIndex {
-            var foundEnd = false
+            var nextRange: Range<String.Index>?
             for ender in paragraphEnders {
-                if let range = html.range(of: ender, range: searchStart..<html.endIndex) {
-                    let candidateEnd = html.index(after: range.lowerBound)
-                    let distance = html.distance(from: lastParagraphEnd, to: candidateEnd)
-                    if distance > maxChunkSize {
-                        let chunk = String(html[lastParagraphEnd..<candidateEnd])
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !chunk.isEmpty {
-                            chunks.append(chunk)
-                        }
-                        lastParagraphEnd = candidateEnd
-                        searchStart = candidateEnd
-                        foundEnd = true
-                        break
-                    }
-                    searchStart = html.index(after: range.lowerBound)
+                guard let range = html.range(of: ender, range: searchStart..<html.endIndex) else {
+                    continue
+                }
+                if nextRange == nil || range.upperBound < nextRange!.upperBound {
+                    nextRange = range
                 }
             }
-            if !foundEnd {
+
+            guard let range = nextRange else {
                 break
             }
+
+            let candidateEnd = range.upperBound
+            let distance = html.distance(from: lastParagraphEnd, to: candidateEnd)
+            if distance > maxChunkSize {
+                let chunk = String(html[lastParagraphEnd..<candidateEnd])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !chunk.isEmpty {
+                    chunks.append(chunk)
+                }
+                lastParagraphEnd = candidateEnd
+            }
+            searchStart = candidateEnd
         }
 
         if lastParagraphEnd < html.endIndex {

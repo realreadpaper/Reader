@@ -9,6 +9,18 @@ enum SearchPanelLayout {
     }
 }
 
+enum SearchInputPolicy {
+    static let debounceDelay: Duration = .milliseconds(250)
+
+    static func normalizedQuery(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func shouldSearchAutomatically(previous: String, current: String) -> Bool {
+        normalizedQuery(previous) != normalizedQuery(current)
+    }
+}
+
 struct SearchPanelView: View {
     let coordinator: RenderCoordinator
     let onResultSelect: (SearchResultTarget) -> Void
@@ -18,6 +30,7 @@ struct SearchPanelView: View {
     @State private var searchText = ""
     @State private var epubResults: [RenderCoordinator.EPUBSearchResult] = []
     @State private var currentResultIndex = 0
+    @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +44,7 @@ struct SearchPanelView: View {
                     .font(.subheadline)
                     .foregroundStyle(themeManager.currentTheme.primaryText)
                     .tint(themeManager.currentTheme.accent)
-                    .onSubmit { performSearch() }
+                    .onSubmit { performSearchImmediately() }
                     .submitLabel(.search)
 
                 if !epubResults.isEmpty || !coordinator.pdfSearchResults.isEmpty {
@@ -88,10 +101,14 @@ struct SearchPanelView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
         .onDisappear {
+            searchTask?.cancel()
             searchText = ""
             epubResults = []
             currentResultIndex = 0
             coordinator.pdfSearchResults = []
+        }
+        .onChange(of: searchText) { oldValue, newValue in
+            scheduleSearch(previous: oldValue, current: newValue)
         }
     }
 
@@ -188,22 +205,58 @@ struct SearchPanelView: View {
     }
 
     @MainActor
-    private func performSearch() {
-        guard !searchText.isEmpty else {
-            epubResults = []
+    private func scheduleSearch(previous: String, current: String) {
+        searchTask?.cancel()
+        guard SearchInputPolicy.shouldSearchAutomatically(previous: previous, current: current) else {
             return
         }
+
+        let query = SearchInputPolicy.normalizedQuery(current)
+        guard !query.isEmpty else {
+            clearSearchResults()
+            return
+        }
+
+        searchTask = Task { @MainActor in
+            try? await Task.sleep(for: SearchInputPolicy.debounceDelay)
+            guard !Task.isCancelled else { return }
+            await performSearch(query)
+        }
+    }
+
+    @MainActor
+    private func performSearchImmediately() {
+        searchTask?.cancel()
+        let query = SearchInputPolicy.normalizedQuery(searchText)
+        Task { @MainActor in
+            await performSearch(query)
+        }
+    }
+
+    @MainActor
+    private func clearSearchResults() {
+        epubResults = []
+        coordinator.pdfSearchResults = []
+        currentResultIndex = 0
+    }
+
+    @MainActor
+    private func performSearch(_ query: String) async {
+        guard !query.isEmpty else {
+            clearSearchResults()
+            return
+        }
+
+        currentResultIndex = 0
 
         if coordinator.book.fileType == .pdf {
-            coordinator.searchPDF(searchText)
+            epubResults = []
+            coordinator.searchPDF(query)
             return
         }
 
-        Task {
-            let results = await coordinator.searchEPUB(searchText)
-            epubResults = results
-            currentResultIndex = 0
-        }
+        coordinator.pdfSearchResults = []
+        epubResults = await coordinator.searchEPUB(query)
     }
 
     @MainActor

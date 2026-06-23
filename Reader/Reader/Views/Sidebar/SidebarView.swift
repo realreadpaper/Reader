@@ -10,6 +10,7 @@ struct SidebarView: View {
 
     @State private var selectedTab: SidebarTab = .all
     @State private var searchText = ""
+    @State private var refreshToken = UUID()
     @Environment(ThemeManager.self) private var theme
 
     enum SidebarTab: String, CaseIterable {
@@ -94,6 +95,7 @@ struct SidebarView: View {
                 onDelete: deleteBook,
                 onToggleFavorite: toggleFavorite
             )
+            .id(refreshToken)
         }
         .background(theme.currentTheme.sidebarBG)
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -104,6 +106,7 @@ struct SidebarView: View {
 
     @MainActor
     private var allBooks: [Book] {
+        _ = refreshToken
         switch selectedTab {
         case .all: return storageService.fetchBooks()
         case .recent: return storageService.fetchRecentBooks()
@@ -119,16 +122,22 @@ struct SidebarView: View {
 
     @MainActor
     private func deleteBook(_ book: Book) {
-        if selectedBook?.id == book.id {
-            selectedBook = nil
+        let deletedBookID = book.id
+        do {
+            try library.deleteBook(book)
+            if selectedBook?.id == deletedBookID {
+                selectedBook = nil
+            }
+            refreshBookList()
+        } catch {
+            importError = "删除失败：\(error.localizedDescription)"
         }
-        library.deleteBookFiles(book)
-        storageService.deleteBook(book)
     }
 
     @MainActor
     private func toggleFavorite(_ book: Book) {
         storageService.toggleFavorite(book)
+        refreshBookList()
     }
 
     private func handleDrop(providers: [NSItemProvider]) {
@@ -139,11 +148,17 @@ struct SidebarView: View {
                 Task { @MainActor in
                     do {
                         _ = try library.importBook(at: url)
+                        refreshBookList()
                     } catch {
                         importError = error.localizedDescription
                     }
                 }
             }
         }
+    }
+
+    @MainActor
+    private func refreshBookList() {
+        refreshToken = UUID()
     }
 }

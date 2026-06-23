@@ -43,6 +43,19 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertEqual(parsed.toc.map(\.title), ["第 1 页", "第 2 页"])
     }
 
+    func testParseClassicMOBIContinuesPaginatingLongPageBreakSections() async throws {
+        let longPage = (0..<420).map { "<p>第 \($0) 段内容，用来模拟一个很长的 MOBI 页面。</p>" }.joined()
+        let html = "<html><body>\(longPage)<mbp:pagebreak/>\(longPage)</body></html>"
+        let url = try makeClassicMOBIFixture(html: html)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+
+        XCTAssertGreaterThan(parsed.chapters.count, 2)
+        XCTAssertEqual(parsed.toc.first?.title, "第 1 页")
+        XCTAssertEqual(parsed.toc.last?.title, "第 \(parsed.chapters.count) 页")
+    }
+
     func testDecodeHTMLUsesLossyUTF8ForDeclaredUTF8() {
         var raw = Data("<p>逻辑".utf8)
         raw.append(0x91)

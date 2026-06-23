@@ -1,14 +1,21 @@
 import SwiftUI
 import WebKit
 
+struct EPUBPageMetrics {
+    let currentPage: Int
+    let totalPages: Int
+    let chapterIndex: Int
+}
+
 struct EPUBRendererView: View {
     let book: Book
     let chapters: [EPUBChapter]
     let resourceDirectory: URL?
     @Binding var currentChapter: Int
-    @Binding var progress: Double
     let themeManager: ThemeManager
     let settings: ReaderSettings
+    let initialProgress: Double
+    let onPageMetrics: (EPUBPageMetrics) -> Void
     let onSelection: (String, CGRect) -> Void
 
     var body: some View {
@@ -16,10 +23,11 @@ struct EPUBRendererView: View {
             chapters: chapters,
             resourceDirectory: resourceDirectory,
             currentChapter: $currentChapter,
-            progress: $progress,
             theme: themeManager.currentTheme,
             fontSize: settings.fontSize,
             lineHeight: settings.lineHeight,
+            initialProgress: initialProgress,
+            onPageMetrics: onPageMetrics,
             onSelection: onSelection
         )
     }
@@ -29,10 +37,11 @@ struct EPUBWebView: NSViewRepresentable {
     let chapters: [EPUBChapter]
     let resourceDirectory: URL?
     @Binding var currentChapter: Int
-    @Binding var progress: Double
     let theme: AppTheme
     let fontSize: Double
     let lineHeight: Double
+    let initialProgress: Double
+    let onPageMetrics: (EPUBPageMetrics) -> Void
     let onSelection: (String, CGRect) -> Void
 
     func makeNSView(context: Context) -> WKWebView {
@@ -61,12 +70,10 @@ struct EPUBWebView: NSViewRepresentable {
         context.coordinator.startObservingHighlightRequests()
 
         if !chapters.isEmpty {
-            context.coordinator.loadChapter(
-                index: currentChapter,
+            context.coordinator.loadBook(
                 chapters: chapters,
                 resourceDirectory: resourceDirectory
             )
-            context.coordinator.lastChapter = currentChapter
         }
 
         return webView
@@ -74,14 +81,19 @@ struct EPUBWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         guard !chapters.isEmpty else { return }
+        context.coordinator.parent = self
 
-        if context.coordinator.lastChapter != currentChapter {
-            context.coordinator.lastChapter = currentChapter
-            context.coordinator.loadChapter(
-                index: currentChapter,
+        let bookKey = context.coordinator.bookKey(
+            chapters: chapters,
+            resourceDirectory: resourceDirectory
+        )
+        if context.coordinator.loadedBookKey != bookKey {
+            context.coordinator.loadBook(
                 chapters: chapters,
                 resourceDirectory: resourceDirectory
             )
+        } else if context.coordinator.visibleChapter != currentChapter {
+            context.coordinator.goToChapter(currentChapter)
         } else {
             context.coordinator.applyStyles(
                 theme: theme,
@@ -103,7 +115,9 @@ struct EPUBWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var parent: EPUBWebView
         weak var webView: WKWebView?
-        var lastChapter: Int = -1
+        var loadedBookKey: String = ""
+        var visibleChapter: Int = 0
+        private var restoredInitialProgress = false
         private var appliedTheme: String = ""
         private var appliedFontSize: Double = 0
         private var appliedLineHeight: Double = 0
@@ -140,28 +154,30 @@ struct EPUBWebView: NSViewRepresentable {
             }
         }
 
-        func loadChapter(index: Int, chapters: [EPUBChapter], resourceDirectory: URL?) {
-            guard index >= 0, index < chapters.count else { return }
-            let chapter = chapters[index]
-            let webView = self.webView
+        func bookKey(chapters: [EPUBChapter], resourceDirectory: URL?) -> String {
+            let sources = chapters.map(\.fileName).joined(separator: "|")
+            return "\(resourceDirectory?.path ?? "")|\(chapters.count)|\(sources)"
+        }
 
-            if let resourceDir = resourceDirectory {
-                let chapterURL = resourceDir.appendingPathComponent(chapter.fileName)
-                if FileManager.default.fileExists(atPath: chapterURL.path) {
-                    let dir = chapterURL.deletingLastPathComponent()
-                    webView?.loadFileURL(chapterURL, allowingReadAccessTo: dir)
-                    return
-                }
-            }
+        func loadBook(chapters: [EPUBChapter], resourceDirectory: URL?) {
+            guard !chapters.isEmpty else { return }
+            loadedBookKey = bookKey(chapters: chapters, resourceDirectory: resourceDirectory)
+            visibleChapter = max(0, min(parent.currentChapter, chapters.count - 1))
+            restoredInitialProgress = false
 
-            let wrapped = EPUBScripts.wrapHTML(
-                body: chapter.htmlContent,
+            let wrapped = EPUBScripts.wrapBookHTML(
+                chapters: chapters,
                 theme: parent.theme,
                 fontSize: parent.fontSize,
                 lineHeight: parent.lineHeight
             )
-            let baseURL = resourceDirectory
-            webView?.loadHTMLString(wrapped, baseURL: baseURL)
+            webView?.loadHTMLString(wrapped, baseURL: resourceDirectory)
+        }
+
+        func goToChapter(_ index: Int) {
+            guard index >= 0, index < parent.chapters.count else { return }
+            visibleChapter = index
+            webView?.evaluateJavaScript("window.ReaderGoToChapter && window.ReaderGoToChapter(\(index));", completionHandler: nil)
         }
 
         func applyStyles(theme: AppTheme, fontSize: Double, lineHeight: Double) {
@@ -201,9 +217,17 @@ struct EPUBWebView: NSViewRepresentable {
                 parent.onSelection(text, rect)
 
             case "progress":
-                let p = body["value"] as? Double ?? 0
+                let page = body["currentPage"] as? Int ?? 0
+                let total = body["totalPages"] as? Int ?? 1
+                let chapter = body["chapterIndex"] as? Int ?? visibleChapter
+                visibleChapter = chapter
+                let metrics = EPUBPageMetrics(
+                    currentPage: max(0, page),
+                    totalPages: max(1, total),
+                    chapterIndex: max(0, chapter)
+                )
                 Task { @MainActor in
-                    parent.progress = p
+                    parent.onPageMetrics(metrics)
                 }
 
             default:
@@ -219,6 +243,18 @@ struct EPUBWebView: NSViewRepresentable {
                 fontSize: parent.fontSize,
                 lineHeight: parent.lineHeight
             )
+            webView.evaluateJavaScript(
+                "window.ReaderApplyStyles && window.ReaderApplyStyles('\(parent.theme.contentBG.hex)', '\(parent.theme.primaryText.hex)', \(parent.fontSize), '\(String(format: "%.2f", parent.lineHeight))');",
+                completionHandler: nil
+            )
+            if !restoredInitialProgress {
+                restoredInitialProgress = true
+                let progress = max(0, min(1, parent.initialProgress))
+                webView.evaluateJavaScript(
+                    "window.ReaderRestoreProgress && window.ReaderRestoreProgress(\(progress));",
+                    completionHandler: nil
+                )
+            }
         }
 
         // MARK: - JS helpers for host code
@@ -238,6 +274,41 @@ struct EPUBWebView: NSViewRepresentable {
 // MARK: - Injected JS/CSS
 
 enum EPUBScripts {
+    static func wrapBookHTML(chapters: [EPUBChapter], theme: AppTheme, fontSize: Double, lineHeight: Double) -> String {
+        let bg = theme.contentBG.hex
+        let fg = theme.primaryText.hex
+        let lh = String(format: "%.2f", lineHeight)
+        let body = chapters.enumerated().map { index, chapter in
+            let attrs = extractBodyAttributes(from: chapter.htmlContent)
+            let content = extractBodyContent(from: chapter.htmlContent)
+            let rewritten = rewriteResourceLinks(in: content, sourcePath: chapter.fileName)
+            return #"<section class="reader-chapter" data-reader-chapter="\#(index)" \#(attrs)>\#(rewritten)</section>"#
+        }.joined(separator: "\n")
+
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+        \(cssTemplate)
+        </style>
+        </head>
+        <body>
+        <div id="reader-viewport">
+          <main id="reader-book" style="--reader-bg: \(bg); --reader-fg: \(fg); --reader-font-size: \(fontSize)px; --reader-line-height: \(lh);">
+            \(body)
+          </main>
+        </div>
+        <script>
+        \(bootScript)
+        </script>
+        </body>
+        </html>
+        """
+    }
+
     static func wrapHTML(body: String, theme: AppTheme, fontSize: Double, lineHeight: Double) -> String {
         let bg = theme.contentBG.hex
         let fg = theme.primaryText.hex
@@ -262,6 +333,75 @@ enum EPUBScripts {
         """
     }
 
+    static func extractBodyContent(from html: String) -> String {
+        guard let bodyOpen = html.range(of: #"<body\b[^>]*>"#, options: [.regularExpression, .caseInsensitive]),
+              let bodyClose = html.range(of: #"</body>"#, options: [.regularExpression, .caseInsensitive]) else {
+            return html
+        }
+        return String(html[bodyOpen.upperBound..<bodyClose.lowerBound])
+    }
+
+    static func extractBodyAttributes(from html: String) -> String {
+        guard let bodyOpen = html.range(of: #"<body\b[^>]*>"#, options: [.regularExpression, .caseInsensitive]) else {
+            return ""
+        }
+        var tag = String(html[bodyOpen])
+        tag = tag.replacingOccurrences(of: #"</?body"#, with: "", options: [.regularExpression, .caseInsensitive])
+        tag = tag.replacingOccurrences(of: ">", with: "")
+        tag = tag.replacingOccurrences(of: #"(?i)\sclass\s*=\s*(['"]).*?\1"#, with: "", options: .regularExpression)
+        return tag.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func rewriteResourceLinks(in html: String, sourcePath: String) -> String {
+        let pattern = #"(?i)(src|href|xlink:href)\s*=\s*(['"])(.*?)\2"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return html }
+        let nsRange = NSRange(html.startIndex..<html.endIndex, in: html)
+        var result = html
+        for match in regex.matches(in: html, range: nsRange).reversed() {
+            guard match.numberOfRanges == 4,
+                  let attrRange = Range(match.range(at: 1), in: html),
+                  let quoteRange = Range(match.range(at: 2), in: html),
+                  let valueRange = Range(match.range(at: 3), in: html),
+                  let fullRange = Range(match.range(at: 0), in: html) else { continue }
+            let value = String(html[valueRange])
+            let rewritten = rewriteResourcePath(value, sourcePath: sourcePath)
+            let attr = String(html[attrRange])
+            let quote = String(html[quoteRange])
+            result.replaceSubrange(fullRange, with: "\(attr)=\(quote)\(rewritten)\(quote)")
+        }
+        return result
+    }
+
+    static func rewriteResourcePath(_ path: String, sourcePath: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.hasPrefix("#"),
+              !trimmed.hasPrefix("//"),
+              !trimmed.hasPrefix("data:"),
+              !trimmed.hasPrefix("javascript:"),
+              !trimmed.hasPrefix("mailto:"),
+              URL(string: trimmed)?.scheme == nil else {
+            return path
+        }
+
+        if trimmed.hasPrefix("/") {
+            return String(trimmed.drop(while: { $0 == "/" }))
+        }
+
+        let sourceDir = (sourcePath as NSString).deletingLastPathComponent
+        let combined = sourceDir.isEmpty ? trimmed : "\(sourceDir)/\(trimmed)"
+        var parts: [String] = []
+        for part in combined.split(separator: "/", omittingEmptySubsequences: true).map(String.init) {
+            if part == "." { continue }
+            if part == ".." {
+                if !parts.isEmpty { parts.removeLast() }
+            } else {
+                parts.append(part)
+            }
+        }
+        return parts.joined(separator: "/")
+    }
+
     /// 注入到 EPUB 章节的 CSS 模板，CSS 变量在运行时由 `applyStyles` 覆盖
     static let cssTemplate: String = """
     :root {
@@ -271,20 +411,56 @@ enum EPUBScripts {
       --reader-line-height: 2.10;
     }
     html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: hidden !important;
       background: var(--reader-bg) !important;
     }
     body, p, li, dd, dt, blockquote, figcaption, cite, span, div, a:link {
       color: var(--reader-fg) !important;
     }
     body {
-      max-width: 560px !important;
-      margin: 0 auto !important;
-      padding: 40px 24px 120px !important;
       font-family: -apple-system, "PingFang SC", "Songti SC", "Noto Serif CJK SC", serif !important;
       font-size: var(--reader-font-size) !important;
       line-height: var(--reader-line-height) !important;
       word-wrap: break-word !important;
       -webkit-text-size-adjust: 100% !important;
+    }
+    #reader-viewport {
+      position: fixed;
+      inset: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      background: var(--reader-bg) !important;
+      scrollbar-width: none;
+    }
+    #reader-viewport::-webkit-scrollbar {
+      display: none;
+    }
+    #reader-book {
+      box-sizing: border-box;
+      height: calc(100vh - 80px);
+      margin: 40px 0;
+      padding: 0 48px;
+      color: var(--reader-fg) !important;
+      font-family: -apple-system, "PingFang SC", "Songti SC", "Noto Serif CJK SC", serif !important;
+      font-size: var(--reader-font-size) !important;
+      line-height: var(--reader-line-height) !important;
+      column-width: calc(100vw - 96px);
+      -webkit-column-width: calc(100vw - 96px);
+      column-gap: 96px;
+      -webkit-column-gap: 96px;
+      overflow: visible;
+    }
+    .reader-chapter {
+      break-before: column;
+      -webkit-column-break-before: always;
+    }
+    .reader-chapter:first-child {
+      break-before: auto;
+      -webkit-column-break-before: auto;
     }
     p, li {
       font-size: 1em !important;
@@ -363,22 +539,171 @@ enum EPUBScripts {
       });
 
       var scrollTimer = null;
+      var restoreTimer = null;
+      var hasRestored = false;
+      var handlersInstalled = false;
+      var wheelAccumulator = 0;
+      var wheelResetTimer = null;
+      var lastWheelTurnAt = 0;
+
+      function viewport() {
+        return document.getElementById('reader-viewport');
+      }
+
+      function book() {
+        return document.getElementById('reader-book');
+      }
+
+      function pageWidth() {
+        var v = viewport();
+        return Math.max(1, v ? v.clientWidth : window.innerWidth || 1);
+      }
+
+      function totalPages() {
+        var v = viewport();
+        if (!v) return 1;
+        return Math.max(1, Math.ceil(v.scrollWidth / pageWidth()));
+      }
+
+      function currentPage() {
+        var v = viewport();
+        if (!v) return 0;
+        return Math.max(0, Math.min(totalPages() - 1, Math.round(v.scrollLeft / pageWidth())));
+      }
+
+      function chapterAtViewportCenter() {
+        try {
+          var v = viewport();
+          if (!v) return 0;
+          var rect = v.getBoundingClientRect();
+          var x = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width / 2));
+          var y = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height / 2));
+          var node = document.elementFromPoint(x, y);
+          var chapter = node && node.closest ? node.closest('.reader-chapter') : null;
+          if (chapter && chapter.dataset.readerChapter) {
+            return parseInt(chapter.dataset.readerChapter, 10) || 0;
+          }
+        } catch(e) {}
+        return 0;
+      }
+
+      function snapToNearestPage() {
+        var v = viewport();
+        if (!v) return;
+        var target = currentPage() * pageWidth();
+        if (Math.abs(v.scrollLeft - target) > 1) {
+          v.scrollTo({ left: target, top: 0, behavior: 'smooth' });
+        }
+      }
+
       function reportProgress() {
         try {
-          var sh = document.documentElement.scrollHeight - document.documentElement.clientHeight;
-          var st = document.documentElement.scrollTop || document.body.scrollTop;
-          var p = sh > 0 ? Math.max(0, Math.min(1, st / sh)) : 0;
-          window.webkit.messageHandlers.readerBridge.postMessage({ type: 'progress', value: p });
+          var page = currentPage();
+          window.webkit.messageHandlers.readerBridge.postMessage({
+            type: 'progress',
+            currentPage: page,
+            totalPages: totalPages(),
+            chapterIndex: chapterAtViewportCenter()
+          });
         } catch(e) {}
       }
-      window.addEventListener('scroll', function() {
+      window.ReaderReportProgress = reportProgress;
+      function scheduleReport() {
         if (scrollTimer) return;
         scrollTimer = setTimeout(function() {
           scrollTimer = null;
           reportProgress();
         }, 100);
+      }
+
+      function goToPage(page, behavior) {
+        var v = viewport();
+        if (!v) return;
+        var target = Math.max(0, Math.min(totalPages() - 1, page)) * pageWidth();
+        v.scrollTo({ left: target, top: 0, behavior: behavior || 'auto' });
+        setTimeout(reportProgress, 80);
+      }
+
+      window.ReaderTurnPage = function(delta) {
+        var next = currentPage() + delta;
+        goToPage(next, 'smooth');
+      };
+
+      window.ReaderRestoreProgress = function(progress) {
+        if (hasRestored) return;
+        hasRestored = true;
+        if (restoreTimer) clearTimeout(restoreTimer);
+        restoreTimer = setTimeout(function() {
+          var pages = totalPages();
+          var page = Math.max(0, Math.min(pages - 1, Math.ceil(Math.max(0, Math.min(1, progress)) * pages) - 1));
+          goToPage(page, 'auto');
+        }, 120);
+      };
+
+      window.ReaderGoToChapter = function(index) {
+        try {
+          var section = document.querySelector('.reader-chapter[data-reader-chapter="' + index + '"]');
+          var v = viewport();
+          if (!section || !v) return;
+          var rect = section.getBoundingClientRect();
+          var vRect = v.getBoundingClientRect();
+          var left = rect.left - vRect.left + v.scrollLeft;
+          goToPage(Math.floor(left / pageWidth()), 'smooth');
+        } catch(e) {}
+      };
+
+      function installPagingHandlers() {
+        if (handlersInstalled) return;
+        var v = viewport();
+        if (!v) return;
+        handlersInstalled = true;
+        v.addEventListener('scroll', scheduleReport);
+        window.addEventListener('wheel', function(event) {
+          var delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+          if (Math.abs(delta) < 1) return;
+          event.preventDefault();
+
+          if (wheelResetTimer) clearTimeout(wheelResetTimer);
+          wheelResetTimer = setTimeout(function() {
+            wheelAccumulator = 0;
+          }, 180);
+
+          wheelAccumulator += delta;
+          var now = Date.now();
+          var threshold = Math.max(36, Math.min(120, pageWidth() * 0.10));
+          if (Math.abs(wheelAccumulator) >= threshold && now - lastWheelTurnAt > 180) {
+            window.ReaderTurnPage(wheelAccumulator > 0 ? 1 : -1);
+            wheelAccumulator = 0;
+            lastWheelTurnAt = now;
+          }
+        }, { passive: false });
+        document.addEventListener('keydown', function(event) {
+          var tag = event.target && event.target.tagName ? event.target.tagName.toLowerCase() : '';
+          if (tag === 'input' || tag === 'textarea' || event.metaKey || event.ctrlKey || event.altKey) return;
+
+          if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
+            event.preventDefault();
+            window.ReaderTurnPage(1);
+          } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+            event.preventDefault();
+            window.ReaderTurnPage(-1);
+          }
+        });
+      }
+      installPagingHandlers();
+      document.addEventListener('DOMContentLoaded', function() {
+        installPagingHandlers();
+        reportProgress();
       });
-      window.addEventListener('load', reportProgress);
+      window.addEventListener('resize', function() {
+        setTimeout(reportProgress, 120);
+      });
+      window.addEventListener('load', function() {
+        installPagingHandlers();
+        reportProgress();
+        setTimeout(reportProgress, 250);
+        setTimeout(reportProgress, 800);
+      });
 
       window.ReaderWrapSelection = function(className) {
         try {
@@ -411,10 +736,18 @@ enum EPUBScripts {
           root.style.setProperty('--reader-fg', fg);
           root.style.setProperty('--reader-font-size', fontSize + 'px');
           root.style.setProperty('--reader-line-height', lineHeight);
+          var bookEl = book();
+          if (bookEl) {
+            bookEl.style.setProperty('--reader-bg', bg);
+            bookEl.style.setProperty('--reader-fg', fg);
+            bookEl.style.setProperty('--reader-font-size', fontSize + 'px');
+            bookEl.style.setProperty('--reader-line-height', lineHeight);
+          }
           if (document.body) {
             document.body.style.background = bg;
             document.body.style.color = fg;
           }
+          setTimeout(reportProgress, 120);
         } catch(e) {}
       };
     })();
