@@ -11,11 +11,11 @@ struct BottomBarView: View {
             if coordinator.totalChapters > 0 {
                 if book.fileType == .pdf {
                     Text("第 \(coordinator.pdfCurrentPage) 页 / 共 \(coordinator.totalChapters) 页")
-                        .font(.caption2)
+                        .font(.subheadline)
                         .foregroundStyle(themeManager.currentTheme.secondaryText)
                 } else {
                     Text("第 \(coordinator.currentChapter + 1) 章 / 共 \(coordinator.totalChapters) 章")
-                        .font(.caption2)
+                        .font(.subheadline)
                         .foregroundStyle(themeManager.currentTheme.secondaryText)
                 }
             }
@@ -36,13 +36,13 @@ struct BottomBarView: View {
             .frame(width: 120)
 
             Text("\(Int(coordinator.progress * 100))%")
-                .font(.caption2)
+                .font(.subheadline)
                 .foregroundStyle(themeManager.currentTheme.secondaryText)
-                .frame(width: 38, alignment: .trailing)
+                .frame(width: 42, alignment: .trailing)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .frame(height: 28)
+        .padding(.vertical, 8)
+        .frame(height: 32)
         .background(themeManager.currentTheme.sidebarBG)
         .overlay(alignment: .top) {
             Divider().background(themeManager.currentTheme.border)

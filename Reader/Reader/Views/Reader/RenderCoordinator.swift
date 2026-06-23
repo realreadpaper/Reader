@@ -139,7 +139,7 @@ final class RenderCoordinator {
 
     var currentTitle: String {
         if book.fileType == .pdf {
-            return "第 \(pdfCurrentPage) 页 / 共 \(pdfPageCount) 页"
+            return book.title
         }
         let entries = epubMetadata?.tocEntries ?? []
         if currentChapter >= 0 && currentChapter < entries.count {
