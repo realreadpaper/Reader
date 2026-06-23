@@ -45,6 +45,9 @@ final class MOBIParser: BookParser {
             throw BookParseError.calibreNotInstalled
         }
         let epubURL = try await converter.convertToEPUB(mobiURL: url)
+        defer {
+            try? FileManager.default.removeItem(at: epubURL)
+        }
         return try await EPUBParser().parse(fileAt: epubURL)
     }
 

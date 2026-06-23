@@ -84,7 +84,6 @@ struct FontPanelView: View {
                 HStack(spacing: 10) {
                     ForEach(AppTheme.allCases, id: \.self) { t in
                         Button(action: {
-                            selectedTheme = t
                             themeManager.setTheme(t)
                         }) {
                             VStack(spacing: 4) {

@@ -4,10 +4,15 @@ import QuartzCore
 
 struct PDFContainerView: NSViewRepresentable {
     let url: URL
-    let coordinator: PDFRendererCoordinator
+    let document: PDFDocument?
+    let coordinator: RenderCoordinator
     let targetPageIndex: Int
     let theme: AppTheme
     let filterEnabled: Bool
+
+    func makeCoordinator() -> PDFRendererCoordinator {
+        PDFRendererCoordinator(renderCoordinator: coordinator)
+    }
 
     func makeNSView(context: Context) -> PDFView {
         let pdfView = PDFView()
@@ -17,20 +22,20 @@ struct PDFContainerView: NSViewRepresentable {
         pdfView.wantsLayer = true
         pdfView.delegate = context.coordinator
 
-        if let document = PDFDocument(url: url) {
-            pdfView.document = document
-            let startPage = max(0, min(targetPageIndex, document.pageCount - 1))
-            if document.pageCount > 0, let page = document.page(at: startPage) {
+        let doc = document ?? PDFDocument(url: url)
+        if let doc {
+            pdfView.document = doc
+            let startPage = max(0, min(targetPageIndex, doc.pageCount - 1))
+            if doc.pageCount > 0, let page = doc.page(at: startPage) {
                 pdfView.go(to: page)
             }
             context.coordinator.bindInitialProgress(
                 pageIndex: startPage,
-                totalPages: document.pageCount
+                totalPages: doc.pageCount
             )
         }
 
         context.coordinator.startObservingPageChanges(pdfView: pdfView)
-
         applyFilters(to: pdfView)
         return pdfView
     }
@@ -38,11 +43,19 @@ struct PDFContainerView: NSViewRepresentable {
     func updateNSView(_ pdfView: PDFView, context: Context) {
         applyFilters(to: pdfView)
 
-        guard let document = pdfView.document else { return }
-        let current = pdfView.currentPage.flatMap { document.index(for: $0) } ?? -1
-        if targetPageIndex >= 0 && targetPageIndex < document.pageCount && targetPageIndex != current {
-            if let page = document.page(at: targetPageIndex) {
+        let doc = document ?? PDFDocument(url: url)
+        if let doc, pdfView.document !== doc {
+            pdfView.document = doc
+            let startPage = max(0, min(targetPageIndex, doc.pageCount - 1))
+            if doc.pageCount > 0, let page = doc.page(at: startPage) {
                 pdfView.go(to: page)
+            }
+        } else if let doc = pdfView.document {
+            let current = pdfView.currentPage.flatMap { doc.index(for: $0) } ?? -1
+            if targetPageIndex >= 0 && targetPageIndex < doc.pageCount && targetPageIndex != current {
+                if let page = doc.page(at: targetPageIndex) {
+                    pdfView.go(to: page)
+                }
             }
         }
     }
@@ -50,8 +63,6 @@ struct PDFContainerView: NSViewRepresentable {
     static func dismantleNSView(_ pdfView: PDFView, coordinator: PDFRendererCoordinator) {
         coordinator.stopObservingPageChanges()
     }
-
-    func makeCoordinator() -> PDFRendererCoordinator { coordinator }
 
     private func applyFilters(to view: PDFView) {
         guard filterEnabled else {

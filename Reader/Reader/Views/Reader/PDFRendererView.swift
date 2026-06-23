@@ -11,7 +11,8 @@ struct PDFRendererView: View {
     var body: some View {
         PDFContainerView(
             url: URL(fileURLWithPath: book.filePath),
-            coordinator: PDFRendererCoordinator(renderCoordinator: coordinator),
+            document: coordinator.pdfDocument,
+            coordinator: coordinator,
             targetPageIndex: coordinator.pdfCurrentPage - 1,
             theme: themeManager.currentTheme,
             filterEnabled: settings.pdfFilterEnabled
