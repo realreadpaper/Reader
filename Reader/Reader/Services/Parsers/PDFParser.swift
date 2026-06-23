@@ -3,9 +3,25 @@ import PDFKit
 
 final class PDFParser: BookParser {
     func parse(fileAt url: URL) async throws -> ParsedBook {
-        guard let doc = PDFDocument(url: url) else {
-            throw BookParseError.corruptedFile(detail: "无法打开 PDF：\(url.lastPathComponent)")
+        BookLog.render.info("PDFParser: opening \(url.lastPathComponent, privacy: .public) path=\(url.path, privacy: .public)")
+
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            BookLog.render.error("PDFParser: file does not exist at path")
+            throw BookParseError.corruptedFile(detail: "PDF 文件不存在：\(url.lastPathComponent)")
         }
+
+        guard let doc = PDFDocument(url: url) else {
+            BookLog.render.error("PDFParser: PDFDocument(url:) returned nil - file may be corrupted or encrypted")
+            throw BookParseError.corruptedFile(detail: "无法打开 PDF：\(url.lastPathComponent)。文件可能已损坏、加密或格式不支持。")
+        }
+
+        let pageCount = doc.pageCount
+        BookLog.render.info("PDFParser: opened OK pages=\(pageCount)")
+
+        guard pageCount > 0 else {
+            throw BookParseError.corruptedFile(detail: "PDF 无页面内容：\(url.lastPathComponent)")
+        }
+
         let title = (doc.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String)
             ?? url.deletingPathExtension().lastPathComponent
         let author = doc.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String

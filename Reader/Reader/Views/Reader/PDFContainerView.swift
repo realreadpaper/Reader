@@ -21,6 +21,11 @@ struct PDFContainerView: NSViewRepresentable {
         pdfView.displayDirection = .vertical
         pdfView.wantsLayer = true
         pdfView.delegate = context.coordinator
+        context.coordinator.applyRenderOptions(
+            to: pdfView,
+            theme: theme,
+            filterEnabled: filterEnabled
+        )
 
         let doc = document ?? PDFDocument(url: url)
         if let doc {
@@ -36,12 +41,15 @@ struct PDFContainerView: NSViewRepresentable {
         }
 
         context.coordinator.startObservingPageChanges(pdfView: pdfView)
-        applyFilters(to: pdfView)
         return pdfView
     }
 
     func updateNSView(_ pdfView: PDFView, context: Context) {
-        applyFilters(to: pdfView)
+        context.coordinator.applyRenderOptions(
+            to: pdfView,
+            theme: theme,
+            filterEnabled: filterEnabled
+        )
 
         let doc = document ?? PDFDocument(url: url)
         if let doc, pdfView.document !== doc {
@@ -64,12 +72,23 @@ struct PDFContainerView: NSViewRepresentable {
         coordinator.stopObservingPageChanges()
     }
 
-    private func applyFilters(to view: PDFView) {
-        guard filterEnabled else {
-            view.contentFilters = []
-            return
-        }
-        view.contentFilters = Self.filters(for: theme)
+}
+
+struct PDFRenderOptions: Equatable {
+    let theme: AppTheme
+    let filterEnabled: Bool
+
+    func apply(to view: PDFView) {
+        let background = Self.backgroundColor(for: theme)
+        view.wantsLayer = true
+        view.backgroundColor = background
+        view.layer?.backgroundColor = background.cgColor
+        view.layer?.isOpaque = true
+        view.contentFilters = filterEnabled ? Self.filters(for: theme) : []
+    }
+
+    static func backgroundColor(for theme: AppTheme) -> NSColor {
+        NSColor(theme.contentBG)
     }
 
     static func filters(for theme: AppTheme) -> [CIFilter] {
@@ -93,10 +112,21 @@ struct PDFContainerView: NSViewRepresentable {
     }
 }
 
+struct PDFRenderOptionsState {
+    private var current: PDFRenderOptions?
+
+    mutating func markIfChanged(_ next: PDFRenderOptions) -> Bool {
+        guard current != next else { return false }
+        current = next
+        return true
+    }
+}
+
 final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
     let renderCoordinator: RenderCoordinator
     private var pageChangeObserver: NSObjectProtocol?
     private var lastPageIndex: Int = -1
+    private var renderOptionsState = PDFRenderOptionsState()
 
     init(renderCoordinator: RenderCoordinator) {
         self.renderCoordinator = renderCoordinator
@@ -136,6 +166,12 @@ final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
             NotificationCenter.default.removeObserver(obs)
             pageChangeObserver = nil
         }
+    }
+
+    func applyRenderOptions(to pdfView: PDFView, theme: AppTheme, filterEnabled: Bool) {
+        let options = PDFRenderOptions(theme: theme, filterEnabled: filterEnabled)
+        guard renderOptionsState.markIfChanged(options) else { return }
+        options.apply(to: pdfView)
     }
 
     private func handlePageChanged(_ notification: Notification) {

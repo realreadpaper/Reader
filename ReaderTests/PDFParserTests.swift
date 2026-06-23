@@ -32,4 +32,41 @@ final class PDFParserTests: XCTestCase {
         XCTAssertEqual(parsed.chapters.count, 1)
         XCTAssertEqual(parsed.toc.count, 1)
     }
+
+    func testPDFRenderOptionsUseThemeBackgroundToAvoidBlackFlash() {
+        let view = PDFView()
+
+        PDFRenderOptions(theme: .classic, filterEnabled: false).apply(to: view)
+
+        XCTAssertEqual(view.backgroundColor.readerHexString, "#FAF6EF")
+        XCTAssertTrue(view.wantsLayer)
+        XCTAssertEqual(view.layer?.backgroundColor?.readerHexString, "#FAF6EF")
+    }
+
+    func testPDFRenderOptionsStateSkipsUnchangedAppearance() {
+        var state = PDFRenderOptionsState()
+        let options = PDFRenderOptions(theme: .classic, filterEnabled: false)
+
+        XCTAssertTrue(state.markIfChanged(options))
+        XCTAssertFalse(state.markIfChanged(options))
+        XCTAssertTrue(state.markIfChanged(PDFRenderOptions(theme: .night, filterEnabled: false)))
+    }
+}
+
+private extension CGColor {
+    var readerHexString: String {
+        NSColor(cgColor: self)?.readerHexString ?? "#000000"
+    }
+}
+
+private extension NSColor {
+    var readerHexString: String {
+        guard let rgb = usingColorSpace(.deviceRGB) else { return "#000000" }
+        return String(
+            format: "#%02X%02X%02X",
+            Int(round(rgb.redComponent * 255)),
+            Int(round(rgb.greenComponent * 255)),
+            Int(round(rgb.blueComponent * 255))
+        )
+    }
 }
