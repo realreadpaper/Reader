@@ -180,10 +180,8 @@ final class RenderCoordinator {
                 let plainText = chapter.htmlContent
                     .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
                     .replacingOccurrences(of: "&nbsp;", with: " ")
-                if let range = plainText.range(of: query, options: .caseInsensitive) {
-                    let start = plainText.index(range.lowerBound, offsetBy: -30, limitedBy: plainText.startIndex) ?? plainText.startIndex
-                    let end = plainText.index(range.upperBound, offsetBy: 30, limitedBy: plainText.endIndex) ?? plainText.endIndex
-                    let snippet = "..." + plainText[start..<end] + "..."
+                if plainText.range(of: query, options: .caseInsensitive) != nil {
+                    let snippet = Self.makeSnippet(from: plainText, query: query)
                     results.append(EPUBSearchResult(
                         chapterTitle: chapter.title,
                         chapterIndex: index,
@@ -215,11 +213,23 @@ final class RenderCoordinator {
             let idx = doc.index(for: page)
             guard idx >= 0, !seen.contains(idx) else { continue }
             seen.insert(idx)
-            let snippet = (sel.string ?? "").replacingOccurrences(of: "\n", with: " ")
-            results.append((title: "第 \(idx + 1) 页", pageIndex: idx, snippet: "...\(snippet)..."))
+            let pageText = (page.string ?? "").replacingOccurrences(of: "\n", with: " ")
+            let snippet = Self.makeSnippet(from: pageText, query: query)
+            results.append((title: "第 \(idx + 1) 页", pageIndex: idx, snippet: snippet))
             if results.count >= 200 { break }
         }
         return results
+    }
+
+    nonisolated private static func makeSnippet(from text: String, query: String) -> String {
+        guard let range = text.range(of: query, options: .caseInsensitive) else {
+            return String(text.prefix(80))
+        }
+        let start = text.index(range.lowerBound, offsetBy: -30, limitedBy: text.startIndex) ?? text.startIndex
+        let end = text.index(range.upperBound, offsetBy: 30, limitedBy: text.endIndex) ?? text.endIndex
+        let prefix = start == text.startIndex ? "" : "..."
+        let suffix = end == text.endIndex ? "" : "..."
+        return prefix + String(text[start..<end]) + suffix
     }
 
     private func buildPDFOutline(from document: PDFDocument) -> [(title: String, pageIndex: Int)] {

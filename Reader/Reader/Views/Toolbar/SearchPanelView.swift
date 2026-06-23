@@ -87,6 +87,12 @@ struct SearchPanelView: View {
         .background(themeManager.currentTheme.sidebarBG)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        .onDisappear {
+            searchText = ""
+            epubResults = []
+            currentResultIndex = 0
+            coordinator.pdfSearchResults = []
+        }
     }
 
     @MainActor
