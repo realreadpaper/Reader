@@ -13,6 +13,7 @@
 		151D8047B764480C44A5D51A /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4F8BD3CE091E5B47E5FAB7B /* ThemeManager.swift */; };
 		1853B1EA5BABDCD1E3FBD82D /* PalmDBReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A8F818139190B6BDBC6C685 /* PalmDBReaderTests.swift */; };
 		1C4A774472B74143A1D30D52 /* MOBIConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F078D337B80D01156DD0FA21 /* MOBIConverter.swift */; };
+		1C8C9557F17AF06AB5CBABAD /* PDFContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44C5B076B345A2D79B43282 /* PDFContainerView.swift */; };
 		1E0BE65E7587035D1BA07B47 /* CalibreFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6965D43F2A729AB15D3745 /* CalibreFallbackTests.swift */; };
 		2CFC0B0FAD0DA453C395D235 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11A2616F981A1FAD231B038 /* ContentView.swift */; };
 		2DC21B0004653C0229A34A31 /* Bookmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9F0E8C276E56551D158D91 /* Bookmark.swift */; };
@@ -109,6 +110,7 @@
 		C6AE8E0179E2EBE6EAB2DA29 /* MOBIParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIParser.swift; sourceTree = "<group>"; };
 		C6B277DAF5A3E1A05F7319FC /* BookLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookLibrary.swift; sourceTree = "<group>"; };
 		D0377560638F3CB4F0D4C3EE /* MOBIDecompressorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIDecompressorTests.swift; sourceTree = "<group>"; };
+		D44C5B076B345A2D79B43282 /* PDFContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFContainerView.swift; sourceTree = "<group>"; };
 		D5561349CE23916F42822584 /* MOBIParserClassicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIParserClassicTests.swift; sourceTree = "<group>"; };
 		DAC3A7C3BF3D022A24798C49 /* epub-default.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "epub-default.css"; sourceTree = "<group>"; };
 		E3DD150305FF2037F36EAEA1 /* MOBIHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIHeader.swift; sourceTree = "<group>"; };
@@ -154,6 +156,7 @@
 			isa = PBXGroup;
 			children = (
 				A27FCB25D803F031ABF8D272 /* EPUBRendererView.swift */,
+				D44C5B076B345A2D79B43282 /* PDFContainerView.swift */,
 				42EF1DAD93B93180D3D018E3 /* PDFRendererView.swift */,
 				6EFA225B54807F666E163731 /* ReaderView.swift */,
 				6CC97C06C16319A74A71FC28 /* RenderCoordinator.swift */,
@@ -419,6 +422,7 @@
 				CE41B12059740A73BF2D536F /* MOBIDecompressor.swift in Sources */,
 				C8B37E9F15CDB7EF9057053A /* MOBIHeader.swift in Sources */,
 				ADC0B0D1034C24C02E032C26 /* MOBIParser.swift in Sources */,
+				1C8C9557F17AF06AB5CBABAD /* PDFContainerView.swift in Sources */,
 				BDF6467E163EEAECC30DB26C /* PDFParser.swift in Sources */,
 				4FB5DD142CE5F584F1A87FE2 /* PDFRendererView.swift in Sources */,
 				13CC891B59B8521C0F465E7F /* PalmDBReader.swift in Sources */,
