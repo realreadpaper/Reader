@@ -14,6 +14,8 @@ targets:
       - Reader
     resources:
       - Reader/Resources
+    entitlements:
+      path: Reader/Reader/Reader.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.reader.app
@@ -30,6 +32,7 @@ targets:
         PRODUCT_NAME: Reader
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_ENTITLEMENTS: Reader/Reader/Reader.entitlements
 
   ReaderTests:
     type: bundle.unit-test
