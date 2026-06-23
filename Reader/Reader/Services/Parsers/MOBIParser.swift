@@ -1,7 +1,28 @@
 import Foundation
 
+protocol MOBIConverting {
+    var isAvailable: Bool { get }
+    func convertToEPUB(mobiURL: URL) async throws -> URL
+}
+
+extension MOBIConverter: MOBIConverting {}
+
 final class MOBIParser: BookParser {
+    private let converter: MOBIConverting
+
+    init(converter: MOBIConverting = MOBIConverter()) {
+        self.converter = converter
+    }
+
     func parse(fileAt url: URL) async throws -> ParsedBook {
+        do {
+            return try await parseNative(fileAt: url)
+        } catch BookParseError.unsupportedFormat {
+            return try await parseViaCalibre(fileAt: url)
+        }
+    }
+
+    private func parseNative(fileAt url: URL) async throws -> ParsedBook {
         let data = try Data(contentsOf: url, options: [.mappedIfSafe])
         let pdb = try PalmDBReader.read(data)
         guard let record0 = pdb.records.first else {
@@ -13,10 +34,23 @@ final class MOBIParser: BookParser {
         case .classicMOBI:
             return try parseClassic(pdb: pdb, header: header, sourceURL: url)
         case .kf8:
-            throw BookParseError.unsupportedFormat(detail: "KF8 解析尚未实现（Task 10）")
+            throw BookParseError.unsupportedFormat(detail: "KF8 解析尚未实现")
         case .unsupported(let reason):
             throw BookParseError.unsupportedFormat(detail: reason)
         }
+    }
+
+    private func parseViaCalibre(fileAt url: URL) async throws -> ParsedBook {
+        guard converter.isAvailable else {
+            throw BookParseError.calibreNotInstalled
+        }
+        let epubURL = try await converter.convertToEPUB(mobiURL: url)
+        return try await EPUBParser().parse(fileAt: epubURL)
+    }
+
+    /// 测试钩子：绕过 parseNative，直接走 calibre 兜底
+    func testParseViaCalibre(fileAt url: URL) async throws -> ParsedBook {
+        try await parseViaCalibre(fileAt: url)
     }
 
     func parseClassic(pdb: PalmDatabase, header: MOBIHeader, sourceURL: URL) throws -> ParsedBook {
