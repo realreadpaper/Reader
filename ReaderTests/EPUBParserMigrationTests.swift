@@ -3,8 +3,10 @@ import XCTest
 
 final class EPUBParserMigrationTests: XCTestCase {
     func testParseProducesParsedBookMatchingLegacyMetadata() async throws {
-        let url = Bundle(for: type(of: self))
-            .url(forResource: "minimal", withExtension: "epub")!
+        let testFile = URL(fileURLWithPath: #filePath)
+        let url = testFile
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/minimal.epub")
         let parser = EPUBParser()
 
         let parsed = try await parser.parse(fileAt: url)

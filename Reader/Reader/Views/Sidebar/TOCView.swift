@@ -3,7 +3,7 @@ import SwiftUI
 struct TOCView: View {
     let chapters: [(title: String, chapterIndex: Int)]
     let onChapterSelect: (Int) -> Void
-    let isPDF: Bool
+    let showPageNumbers: Bool
     let currentIndex: Int
 
     @Environment(ThemeManager.self) private var theme
@@ -11,12 +11,12 @@ struct TOCView: View {
     init(
         chapters: [(title: String, chapterIndex: Int)],
         onChapterSelect: @escaping (Int) -> Void,
-        isPDF: Bool = false,
+        showPageNumbers: Bool = false,
         currentIndex: Int = -1
     ) {
         self.chapters = chapters
         self.onChapterSelect = onChapterSelect
-        self.isPDF = isPDF
+        self.showPageNumbers = showPageNumbers
         self.currentIndex = currentIndex
     }
 
@@ -26,7 +26,7 @@ struct TOCView: View {
                 let isSelected = chapter.chapterIndex == currentIndex
                 Button(action: { onChapterSelect(chapter.chapterIndex) }) {
                     HStack {
-                        if isPDF {
+                        if showPageNumbers {
                             Text("\(chapter.chapterIndex + 1)")
                                 .font(.caption)
                                 .foregroundStyle(theme.currentTheme.secondaryText)

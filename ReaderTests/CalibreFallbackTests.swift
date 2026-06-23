@@ -26,8 +26,9 @@ final class CalibreFallbackTests: XCTestCase {
     }
 
     private func epubFixtureURL() -> URL {
-        Bundle(for: type(of: self))
-            .url(forResource: "minimal", withExtension: "epub")!
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/minimal.epub")
     }
 }
 

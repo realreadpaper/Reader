@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcodebuild test *)",
+      "Bash(xcodebuild -project Reader.xcodeproj -scheme Reader -configuration Debug -destination 'platform=macOS' build)",
+      "Bash(unzip -t /Users/hejianglong/Desktop/code/reader/ReaderTests/Fixtures/minimal.epub)",
+      "Bash(xcrun xcresulttool *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(xcodebuild build *)",
+      "Bash(unzip -l /Users/hejianglong/Desktop/code/reader/ReaderTests/Fixtures/minimal.epub)",
+      "Bash(xxd -l 64 /Users/hejianglong/Desktop/code/reader/ReaderTests/Fixtures/minimal.epub)",
+      "Bash(xxd /Users/hejianglong/Desktop/code/reader/ReaderTests/Fixtures/minimal.epub)",
+      "Bash(swift *)",
+      "Bash(xxd *)",
+      "Bash(git -C /Users/hejianglong/Desktop/code/reader diff Reader/Reader/Services/Parsers/MOBIHeader.swift)",
+      "Bash(xcodebuild -project Reader.xcodeproj -scheme Reader -destination 'platform=macOS' -quiet build)",
+      "Bash(bash make_minimal_epub.sh)",
+      "Bash(git -C /Users/hejianglong/Desktop/code/reader stash)",
+      "Bash(bash /Users/hejianglong/Desktop/code/reader/ReaderTests/Fixtures/make_minimal_epub.sh)",
+      "Bash(git -C /Users/hejianglong/Desktop/code/reader stash pop)",
+      "Bash(git -C /Users/hejianglong/Desktop/code/reader stash list)",
+      "Bash(git -C /Users/hejianglong/Desktop/code/reader status --short)",
+      "Bash(git -C /Users/hejianglong/Desktop/code/reader stash show stash@{0} --stat)",
+      "Bash(git -C /Users/hejianglong/Desktop/code/reader diff --stat)",
+      "Bash(git -C /Users/hejianglong/Desktop/code/reader checkout -- ReaderTests/Fixtures/minimal.epub)",
+      "Bash(xcodebuild -project /Users/hejianglong/Desktop/code/reader/Reader.xcodeproj -scheme Reader -destination 'platform=macOS' -quiet build)",
+      "Bash(python3 *)"
+    ]
+  }
+}

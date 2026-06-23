@@ -37,14 +37,21 @@ final class RenderCoordinator {
         isLoading = true
         defer { isLoading = false }
 
+        let fileType = book.fileType
+        let filePath = book.filePath
+        BookLog.render.info("load: start fileType=\(fileType.rawValue, privacy: .public) path=\(filePath, privacy: .public)")
+
         do {
-            let parser = BookParserRegistry.parser(for: book.fileType)
-            let filePath = book.filePath
             let parsed = try await Task.detached(priority: .userInitiated) {
-                try await parser.parse(fileAt: URL(fileURLWithPath: filePath))
+                try await BookParserRegistry.parseWithCache(
+                    fileAt: URL(fileURLWithPath: filePath),
+                    type: fileType
+                )
             }.value
+            BookLog.render.info("load: parsed title=\(parsed.title, privacy: .public) chapters=\(parsed.chapters.count) renderer=\(String(describing: parsed.renderer), privacy: .public)")
             apply(parsed)
         } catch {
+            BookLog.render.error("load: failed fileType=\(fileType.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             self.loadError = error.localizedDescription
         }
     }
@@ -52,6 +59,11 @@ final class RenderCoordinator {
     private func apply(_ parsed: ParsedBook) {
         switch parsed.renderer {
         case .html:
+            if parsed.chapters.isEmpty {
+                BookLog.render.error("apply: parsed book has 0 chapters, marking as loadError to avoid infinite loading")
+                self.loadError = "解析成功但未提取到任何页面，可能是该 MOBI 文件格式不被支持，请尝试安装 calibre 作为兜底转换器。"
+                return
+            }
             let metadata = EPUBMetadata(
                 title: parsed.title,
                 author: parsed.author,

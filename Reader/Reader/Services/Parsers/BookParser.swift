@@ -42,6 +42,21 @@ enum BookParserRegistry {
         case .pdf:  return PDFParser()
         }
     }
+
+    static func parseWithCache(fileAt url: URL, type: FileType) async throws -> ParsedBook {
+        if type != .pdf, let cached = BookParseCache.shared.load(from: url) {
+            return cached
+        }
+
+        let parser = parser(for: type)
+        let parsed = try await parser.parse(fileAt: url)
+
+        if type != .pdf {
+            BookParseCache.shared.save(parsed, for: url)
+        }
+
+        return parsed
+    }
 }
 
 enum BookParseError: Error, LocalizedError {

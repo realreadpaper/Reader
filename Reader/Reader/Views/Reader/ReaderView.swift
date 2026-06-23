@@ -45,7 +45,7 @@ struct ReaderView: View {
                         TOCView(
                             chapters: coordinator.tocEntries.map { ($0.title, $0.chapterIndex) },
                             onChapterSelect: { coordinator.navigateToChapter($0) },
-                            isPDF: book.fileType == .pdf,
+                            showPageNumbers: true,
                             currentIndex: book.fileType == .pdf
                                 ? coordinator.pdfCurrentPage - 1
                                 : coordinator.currentChapter
@@ -403,7 +403,7 @@ struct BookmarkListView: View {
             ForEach(bookmarks, id: \.id) { bookmark in
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(bookmark.chapter ?? "未知章节")
+                        Text(bookmark.chapter ?? "未知页")
                             .font(.subheadline)
                             .foregroundStyle(themeManager.currentTheme.primaryText)
                         Text(bookmark.note ?? bookmark.position)

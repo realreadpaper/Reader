@@ -1,5 +1,20 @@
 import Foundation
 
+extension String.Encoding {
+    /// GB18030 是 GBK / GB2312 的超集，覆盖简体中文
+    static let gb18030 = String.Encoding(
+        rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+        )
+    )
+    /// Big5 繁体中文
+    static let big5 = String.Encoding(
+        rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.big5.rawValue)
+        )
+    )
+}
+
 enum MOBIVariant: Equatable {
     case classicMOBI
     case kf8
@@ -17,10 +32,24 @@ struct MOBIHeader {
     let compression: MOBICompression
     let firstTextRecord: Int
     let lastTextRecord: Int
+    let textLength: Int
     let firstImageRecord: Int?
+    let textEncodingRaw: UInt32
     let title: String
     let author: String?
     let coverRecordIndex: Int?
+
+    /// 将 MOBI 头里声明的 text encoding codepage 映射到 Swift String.Encoding
+    /// 常见值：1252=Western, 65001=UTF-8, 936=GBK/GB2312, 950=Big5
+    var preferredTextEncoding: String.Encoding? {
+        switch textEncodingRaw {
+        case 1252: return String.Encoding.windowsCP1252
+        case 65001: return String.Encoding.utf8
+        case 936: return .gb18030
+        case 950: return .big5
+        default: return nil
+        }
+    }
 
     /// record0 头 16 字节是 PalmDOC，之后是 MOBI header
     /// PalmDOC: 0-2 compression, 4-8 textLength, 8-10 recordCount, 10-12 recordSize
@@ -45,31 +74,40 @@ struct MOBIHeader {
         }
         let id = String(data: record0.subdata(in: 16..<20), encoding: .ascii) ?? ""
         guard ["MOBI", "TEXt", "BOUNDARY"].contains(id) else {
+            BookLog.mobi.error("read: non-MOBI identifier in record0: \(id, privacy: .public) record0Size=\(record0.count)")
             throw BookParseError.corruptedFile(detail: "非 MOBI identifier：\(id)")
         }
 
         let mobiHeaderLength = Int(record0.readUInt32BE(at: 20))
         guard record0.count >= 16 + mobiHeaderLength else {
+            BookLog.mobi.error("read: MOBI header length overflows record0: headerLen=\(mobiHeaderLength) record0Size=\(record0.count)")
             throw BookParseError.corruptedFile(detail: "MOBI header 长度越界")
         }
 
         let mobiVersion = record0.readUInt32BE(at: 36)
-        // MOBI header internal offsets: firstTextRecord at 24, lastTextRecord at 28, firstImageRecord at 108
-        // record0 absolute offsets: add 16
-        let firstTextRecord: Int
-        if record0.count >= 44 {
-            firstTextRecord = Int(record0.readUInt32BE(at: 40))
-        } else {
-            firstTextRecord = 1
-        }
-        let lastTextRecord: Int
-        if record0.count >= 48 {
-            lastTextRecord = Int(record0.readUInt32BE(at: 44))
-        } else {
-            lastTextRecord = 1
-        }
+        let textEncodingRaw = record0.readUInt32BE(at: 28)
+        let textLength = Int(record0.readUInt32BE(at: 4))
+        // PalmDOC 头 offset 8-10 是 text record count（不含 record0 头记录）
+        // 这是经典 MOBI 文本范围的权威来源，比 MOBI header 内部的字段更可靠
+        let palmDocTextRecordCount = Int(record0.readUInt16BE(at: 8))
+        BookLog.mobi.info("read: record0Size=\(record0.count) id=\(id, privacy: .public) headerLen=\(mobiHeaderLength) version=\(mobiVersion) compression=\(compressionRaw) textEncoding=\(textEncodingRaw) palmDocTextRecordCount=\(palmDocTextRecordCount)")
+
+        // 经典 MOBI 的文本记录范围：record 0 是头，records 1..palmDocTextRecordCount 是文本
+        // 注意：MOBI header 偏移 24/28 在不同实现里定义不一致（generator index / first non-book index），
+        // 真实文件常为 0xFFFFFFFF，不能作为文本范围使用
+        let firstTextRecord = 1
+        let lastTextRecord: Int = {
+            // PalmDOC recordCount 为 0 或异常时退回到 record0 之外的所有记录
+            if palmDocTextRecordCount > 0 {
+                return palmDocTextRecordCount
+            }
+            return 1
+        }()
+
+        // firstImageRecord: MOBI header offset 108 (record0 offset 124)
+        // 部分老文件该字段缺失或为 0，此时返回 nil
         let firstImageRecord: Int
-        if record0.count >= 124 {
+        if record0.count >= 128 {
             firstImageRecord = Int(record0.readUInt32BE(at: 124))
         } else {
             firstImageRecord = 0
@@ -128,7 +166,9 @@ struct MOBIHeader {
             compression: compression,
             firstTextRecord: firstTextRecord,
             lastTextRecord: lastTextRecord,
+            textLength: textLength,
             firstImageRecord: firstImageRecord > 0 ? firstImageRecord : nil,
+            textEncodingRaw: textEncodingRaw,
             title: finalTitle,
             author: author,
             coverRecordIndex: coverRecordIndex
@@ -158,13 +198,33 @@ struct MOBIHeader {
                         compression: base.compression,
                         firstTextRecord: 1,
                         lastTextRecord: max(1, pdb.records.count - 2),
+                        textLength: base.textLength,
                         firstImageRecord: base.firstImageRecord,
+                        textEncodingRaw: base.textEncodingRaw,
                         title: base.title,
                         author: base.author,
                         coverRecordIndex: base.coverRecordIndex
                     )
                 }
             }
+        }
+
+        // 经典 MOBI: 用 PalmDB 实际记录数对 lastTextRecord 做兜底
+        // 避免 PalmDOC recordCount 为 0 但实际有文本记录的边缘情况
+        if base.variant == .classicMOBI,
+           base.lastTextRecord > pdb.records.count - 1 {
+            return MOBIHeader(
+                variant: base.variant,
+                compression: base.compression,
+                firstTextRecord: base.firstTextRecord,
+                lastTextRecord: max(1, pdb.records.count - 1),
+                textLength: base.textLength,
+                firstImageRecord: base.firstImageRecord,
+                textEncodingRaw: base.textEncodingRaw,
+                title: base.title,
+                author: base.author,
+                coverRecordIndex: base.coverRecordIndex
+            )
         }
         return base
     }

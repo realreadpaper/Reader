@@ -3,7 +3,8 @@ import XCTest
 
 final class MOBIParserClassicTests: XCTestCase {
     func testParseClassicMOBIReturnsHtmlBook() async throws {
-        let url = try makeClassicMOBIFixture()
+        let html = "<html><body><h1>Fixture</h1><p>Fixture content here.</p></body></html>"
+        let url = try makeClassicMOBIFixture(html: html)
         defer { try? FileManager.default.removeItem(at: url) }
 
         let parsed = try await MOBIParser().parse(fileAt: url)
@@ -15,20 +16,47 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("Fixture content"))
     }
 
-    private func makeClassicMOBIFixture() throws -> URL {
-        let html = "<html><body><h1>Fixture</h1><p>Fixture content here.</p></body></html>"
-        let htmlBytes = Array(html.utf8)
+    func testParseClassicMOBIDecodesChineseUTF8PalmDoc() async throws {
+        let html = "<html><body><h1>简单的逻辑学</h1><p>逻辑是一门独立的学问。</p></body></html>"
+        let url = try makeClassicMOBIFixture(html: html)
+        defer { try? FileManager.default.removeItem(at: url) }
 
-        // PalmDOC: 每 8 个字面值前要 1 个 flag byte（0x00 = 全字面）
-        var textRecord = Data()
-        var idx = 0
-        while idx < htmlBytes.count {
-            textRecord.append(0x00)  // flag byte
-            for _ in 0..<8 where idx < htmlBytes.count {
-                textRecord.append(htmlBytes[idx])
-                idx += 1
-            }
-        }
+        let parsed = try await MOBIParser().parse(fileAt: url)
+
+        XCTAssertFalse(parsed.chapters.isEmpty)
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("简单的逻辑学"))
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("逻辑是一门独立的学问"))
+    }
+
+    func testParseClassicMOBISplitsPageBreaksIntoPages() async throws {
+        let html = """
+        <html><body><p>第一页内容</p><mbp:pagebreak/><p>第二页内容</p></body></html>
+        """
+        let url = try makeClassicMOBIFixture(html: html)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+
+        XCTAssertEqual(parsed.chapters.count, 2)
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("第一页内容"))
+        XCTAssertTrue(parsed.chapters[1].bodyHTML.contains("第二页内容"))
+        XCTAssertEqual(parsed.toc.map(\.title), ["第 1 页", "第 2 页"])
+    }
+
+    func testDecodeHTMLUsesLossyUTF8ForDeclaredUTF8() {
+        var raw = Data("<p>逻辑".utf8)
+        raw.append(0x91)
+        raw.append(Data("发现</p>".utf8))
+
+        let html = MOBIParser.decodeHTML(raw, declaredEncoding: .utf8)
+
+        XCTAssertTrue(html.contains("逻辑"))
+        XCTAssertTrue(html.contains("发现"))
+        XCTAssertFalse(html.contains("é»"))
+    }
+
+    private func makeClassicMOBIFixture(html: String) throws -> URL {
+        let textRecord = palmDocLiteralRecord(for: Data(html.utf8))
 
         var record0 = Data()
         var be16: UInt16
@@ -38,7 +66,7 @@ final class MOBIParserClassicTests: XCTestCase {
         be16 = UInt16(2).bigEndian
         record0.append(Data(bytes: &be16, count: 2))       // compression = PalmDOC
         record0.append(Data(repeating: 0, count: 2))       // unused
-        be32 = UInt32(html.count).bigEndian
+        be32 = UInt32(Data(html.utf8).count).bigEndian
         record0.append(Data(bytes: &be32, count: 4))       // textLength
         be16 = UInt16(1).bigEndian
         record0.append(Data(bytes: &be16, count: 2))       // recordCount = 1
@@ -52,7 +80,7 @@ final class MOBIParserClassicTests: XCTestCase {
         record0.append(Data(bytes: &be32, count: 4))       // headerLength
         be32 = UInt32(0).bigEndian
         record0.append(Data(bytes: &be32, count: 4))       // mobiType
-        be32 = UInt32(1252).bigEndian
+        be32 = UInt32(65001).bigEndian
         record0.append(Data(bytes: &be32, count: 4))       // textEncoding
         be32 = UInt32(1).bigEndian
         record0.append(Data(bytes: &be32, count: 4))       // uniqueID
@@ -121,5 +149,29 @@ final class MOBIParserClassicTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString + ".mobi")
         try pdb.write(to: url)
         return url
+    }
+
+    private func palmDocLiteralRecord(for htmlData: Data) -> Data {
+        let htmlBytes = Array(htmlData)
+        var textRecord = Data()
+        var idx = 0
+        while idx < htmlBytes.count {
+            let byte = htmlBytes[idx]
+            if byte >= 0x09 && byte <= 0x7F {
+                textRecord.append(byte)
+                idx += 1
+            } else {
+                let start = idx
+                idx += 1
+                while idx < htmlBytes.count,
+                      idx - start < 8,
+                      !(htmlBytes[idx] >= 0x09 && htmlBytes[idx] <= 0x7F) {
+                    idx += 1
+                }
+                textRecord.append(UInt8(idx - start))
+                textRecord.append(contentsOf: htmlBytes[start..<idx])
+            }
+        }
+        return textRecord
     }
 }

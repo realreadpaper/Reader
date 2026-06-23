@@ -39,6 +39,7 @@
 		94D4C0C30FC60AF3268B57C6 /* BookRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7430B611700E533ED8139530 /* BookRowView.swift */; };
 		9520EE1B997FE5CB865599F9 /* TOCView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00DE9FDA8385CD4F5791F59F /* TOCView.swift */; };
 		A5EBACFEAA58FCF6C7D98818 /* EPUBRendererView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27FCB25D803F031ABF8D272 /* EPUBRendererView.swift */; };
+		A8B010B8418D4F122B2A16EA /* BookParseCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF3AA02E014AEF87B1A278F1 /* BookParseCache.swift */; };
 		A9F99D3BE93CFE96B27676B6 /* MOBIDecompressorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0377560638F3CB4F0D4C3EE /* MOBIDecompressorTests.swift */; };
 		ADC0B0D1034C24C02E032C26 /* MOBIParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6AE8E0179E2EBE6EAB2DA29 /* MOBIParser.swift */; };
 		B2555637325F64C743ACEB61 /* ProgressRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE9C206C370BEB57BFF8F79 /* ProgressRingView.swift */; };
@@ -48,6 +49,7 @@
 		BFED300BB3ABAD504004C088 /* ReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760000652DF1850431984E99 /* ReaderApp.swift */; };
 		C09575649D83BD307DA67AB7 /* EPUBParserMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 295D5441EF0BFF2BF2155893 /* EPUBParserMigrationTests.swift */; };
 		C1968A969B72551A5DBF2CA4 /* BookParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B29EB0981B48E9BA8B42B4 /* BookParser.swift */; };
+		C52BF6181BCBE20E53CCF41A /* BookLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7632961E6E034D8A739F7369 /* BookLog.swift */; };
 		C8B37E9F15CDB7EF9057053A /* MOBIHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DD150305FF2037F36EAEA1 /* MOBIHeader.swift */; };
 		CC458817E4DA7BDE6F1C76CD /* BottomBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88EC68083FF6F0F474524204 /* BottomBarView.swift */; };
 		CE41B12059740A73BF2D536F /* MOBIDecompressor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D918080FC8F427BF61C2A2 /* MOBIDecompressor.swift */; };
@@ -96,6 +98,7 @@
 		7430B611700E533ED8139530 /* BookRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRowView.swift; sourceTree = "<group>"; };
 		748B97F5199C987AB12435BF /* SearchPanelLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPanelLayoutTests.swift; sourceTree = "<group>"; };
 		760000652DF1850431984E99 /* ReaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderApp.swift; sourceTree = "<group>"; };
+		7632961E6E034D8A739F7369 /* BookLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookLog.swift; sourceTree = "<group>"; };
 		7D1BE4C99722DBE37CC537AA /* Reader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Reader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7E103CF815E06F398BD890E8 /* PalmDBReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PalmDBReader.swift; sourceTree = "<group>"; };
 		8249092EA5E6182EE7CD6363 /* MOBIHeaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIHeaderTests.swift; sourceTree = "<group>"; };
@@ -111,6 +114,7 @@
 		B4F8BD3CE091E5B47E5FAB7B /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		C6AE8E0179E2EBE6EAB2DA29 /* MOBIParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIParser.swift; sourceTree = "<group>"; };
 		C6B277DAF5A3E1A05F7319FC /* BookLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookLibrary.swift; sourceTree = "<group>"; };
+		CF3AA02E014AEF87B1A278F1 /* BookParseCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookParseCache.swift; sourceTree = "<group>"; };
 		D0377560638F3CB4F0D4C3EE /* MOBIDecompressorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIDecompressorTests.swift; sourceTree = "<group>"; };
 		D44C5B076B345A2D79B43282 /* PDFContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFContainerView.swift; sourceTree = "<group>"; };
 		D5561349CE23916F42822584 /* MOBIParserClassicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIParserClassicTests.swift; sourceTree = "<group>"; };
@@ -196,6 +200,8 @@
 			isa = PBXGroup;
 			children = (
 				C6B277DAF5A3E1A05F7319FC /* BookLibrary.swift */,
+				7632961E6E034D8A739F7369 /* BookLog.swift */,
+				CF3AA02E014AEF87B1A278F1 /* BookParseCache.swift */,
 				A620BE5B107B71A683D37D6E /* EPUBParser.swift */,
 				F078D337B80D01156DD0FA21 /* MOBIConverter.swift */,
 				2446C72DA87D829F1CD0DFB6 /* ReaderSettings.swift */,
@@ -409,6 +415,8 @@
 				5B1C67C57EAA4D8BB1AF3014 /* Book.swift in Sources */,
 				2E386A0E549C5444F9226D39 /* BookLibrary.swift in Sources */,
 				12D7461AD0486C40AA5377AF /* BookListView.swift in Sources */,
+				C52BF6181BCBE20E53CCF41A /* BookLog.swift in Sources */,
+				A8B010B8418D4F122B2A16EA /* BookParseCache.swift in Sources */,
 				C1968A969B72551A5DBF2CA4 /* BookParser.swift in Sources */,
 				94D4C0C30FC60AF3268B57C6 /* BookRowView.swift in Sources */,
 				2DC21B0004653C0229A34A31 /* Bookmark.swift in Sources */,

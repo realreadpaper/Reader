@@ -8,18 +8,22 @@ final class MOBIDecompressorTests: XCTestCase {
         XCTAssertEqual(output, input)
     }
 
-    func testPalmDocAllLiterals() throws {
-        // flags = 0x00 表示后 8 字节全是字面值
-        let input = Data([0x00, 0x41, 0x42, 0x43])
+    func testPalmDocLiteralRunCopiesControlBytes() throws {
+        let input = Data([0x05, 0xC3, 0xA9, 0x00, 0x01, 0x08])
         let output = try MOBIDecompressor.decompress(input, compression: .palmDoc)
-        XCTAssertEqual(output, Data([0x41, 0x42, 0x43]))  // "ABC"
+        XCTAssertEqual(output, Data([0xC3, 0xA9, 0x00, 0x01, 0x08]))
     }
 
-    func testPalmDocSixLiterals() throws {
-        // 1 个 flag byte + 6 个字面值（< 8，剩余 bit 自动跳过）
-        let input = Data([0x00, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46])
+    func testPalmDocBackReferenceCopiesFromPreviousOutput() throws {
+        let input = Data([0x61, 0x62, 0x63, 0x20, 0x80, 0x20])
         let output = try MOBIDecompressor.decompress(input, compression: .palmDoc)
-        XCTAssertEqual(String(data: output, encoding: .ascii), "ABCDEF")
+        XCTAssertEqual(String(data: output, encoding: .ascii), "abc abc")
+    }
+
+    func testPalmDocSpaceCompressionExpandsHighBytes() throws {
+        let input = Data([0xC8, 0xE9])
+        let output = try MOBIDecompressor.decompress(input, compression: .palmDoc)
+        XCTAssertEqual(String(data: output, encoding: .ascii), " H i")
     }
 
     func testHuffThrowsUnsupported() {

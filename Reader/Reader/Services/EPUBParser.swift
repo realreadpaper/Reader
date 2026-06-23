@@ -1,4 +1,5 @@
 import Foundation
+import zlib
 
 struct EPUBChapter {
     let title: String
@@ -96,25 +97,106 @@ final class EPUBParser {
         return extractCoverData(manifest: opf.manifest, containerDir: containerDir)
     }
 
-    // MARK: - Unzip
+    // MARK: - Unzip (native, no external process)
 
     private func unzipEPUB(at url: URL) throws -> URL {
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        let entries = try parseZipEntries(data)
+
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-o", "-qq", url.path, "-d", tempDir.path]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
+        for entry in entries {
+            let outURL = tempDir.appendingPathComponent(entry.name)
+            let dir = outURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        guard process.terminationStatus == 0 else {
-            throw EPUBError.unzipFailed
+            let raw = data.subdata(in: entry.localDataRange)
+            let decompressed: Data
+            if entry.compression == 0 {
+                decompressed = raw
+            } else {
+                decompressed = try inflateData(raw)
+            }
+            try decompressed.write(to: outURL)
         }
         return tempDir
+    }
+
+    private struct ZipEntry {
+        let name: String
+        let compression: UInt16
+        let localDataRange: Range<Int>
+    }
+
+    private func parseZipEntries(_ data: Data) throws -> [ZipEntry] {
+        let eocdSig: [UInt8] = [0x50, 0x4B, 0x05, 0x06]
+        var eocdOffset = data.count - 22
+        while eocdOffset >= 0 {
+            if data[eocdOffset] == eocdSig[0]
+                && data[eocdOffset + 1] == eocdSig[1]
+                && data[eocdOffset + 2] == eocdSig[2]
+                && data[eocdOffset + 3] == eocdSig[3] { break }
+            eocdOffset -= 1
+        }
+        guard eocdOffset >= 0 else { throw EPUBError.unzipFailed }
+        let cdSize = Int(data.readUInt32LE(at: eocdOffset + 12))
+        let cdOffset = Int(data.readUInt32LE(at: eocdOffset + 16))
+        let cdEnd = cdOffset + cdSize
+
+        var entries: [ZipEntry] = []
+        var pos = cdOffset
+        while pos + 46 <= cdEnd {
+            guard data[pos] == 0x50, data[pos + 1] == 0x4B,
+                  data[pos + 2] == 0x01, data[pos + 3] == 0x02 else { break }
+            let comp = data.readUInt16LE(at: pos + 10)
+            let nameLen = Int(data.readUInt16LE(at: pos + 28))
+            let extraLen = Int(data.readUInt16LE(at: pos + 30))
+            let commentLen = Int(data.readUInt16LE(at: pos + 32))
+            let localOffset = Int(data.readUInt32LE(at: pos + 42))
+            let nameData = data.subdata(in: (pos + 46)..<(pos + 46 + nameLen))
+            let name = String(data: nameData, encoding: .utf8) ?? ""
+            if name.hasSuffix("/") {
+                pos += 46 + nameLen + extraLen + commentLen
+                continue
+            }
+            let lNameLen = Int(data.readUInt16LE(at: localOffset + 26))
+            let lExtraLen = Int(data.readUInt16LE(at: localOffset + 28))
+            let dataStart = localOffset + 30 + lNameLen + lExtraLen
+            let compSize = Int(data.readUInt32LE(at: pos + 20))
+            let dataEnd = dataStart + compSize
+            entries.append(ZipEntry(name: name, compression: comp, localDataRange: dataStart..<dataEnd))
+            pos += 46 + nameLen + extraLen + commentLen
+        }
+        guard !entries.isEmpty else { throw EPUBError.unzipFailed }
+        return entries
+    }
+
+    private func inflateData(_ data: Data) throws -> Data {
+        var src = [UInt8](data)
+        var stream = z_stream()
+        let initResult: Int32 = src.withUnsafeMutableBufferPointer { buf in
+            stream.next_in = buf.baseAddress
+            stream.avail_in = UInt32(data.count)
+            return inflateInit2_(&stream, -15, zlibVersion(), Int32(MemoryLayout<z_stream>.size))
+        }
+        guard initResult == Z_OK else { throw EPUBError.unzipFailed }
+        defer { inflateEnd(&stream) }
+
+        var output = Data()
+        let bufSize = 32768
+        var outBuf = [UInt8](repeating: 0, count: bufSize)
+        repeat {
+            outBuf.withUnsafeMutableBufferPointer { buf in
+                stream.next_out = buf.baseAddress
+                stream.avail_out = UInt32(bufSize)
+            }
+            let status = inflate(&stream, Z_NO_FLUSH)
+            guard status == Z_OK || status == Z_STREAM_END else { throw EPUBError.unzipFailed }
+            let written = bufSize - Int(stream.avail_out)
+            output.append(outBuf, count: written)
+        } while stream.avail_out == 0
+        return output
     }
 
     // MARK: - container.xml → OPF path

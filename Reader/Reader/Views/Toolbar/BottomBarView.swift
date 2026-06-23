@@ -1,5 +1,12 @@
 import SwiftUI
 
+enum ReaderPositionLabel {
+    static func text(fileType: FileType, currentIndex: Int, total: Int, pdfCurrentPage: Int) -> String {
+        let page = fileType == .pdf ? pdfCurrentPage : currentIndex + 1
+        return "第 \(page) 页 / 共 \(total) 页"
+    }
+}
+
 struct BottomBarView: View {
     let book: Book
     let coordinator: RenderCoordinator
@@ -9,15 +16,14 @@ struct BottomBarView: View {
     var body: some View {
         HStack(spacing: 8) {
             if coordinator.totalChapters > 0 {
-                if book.fileType == .pdf {
-                    Text("第 \(coordinator.pdfCurrentPage) 页 / 共 \(coordinator.totalChapters) 页")
-                        .font(.subheadline)
-                        .foregroundStyle(themeManager.currentTheme.secondaryText)
-                } else {
-                    Text("第 \(coordinator.currentChapter + 1) 章 / 共 \(coordinator.totalChapters) 章")
-                        .font(.subheadline)
-                        .foregroundStyle(themeManager.currentTheme.secondaryText)
-                }
+                Text(ReaderPositionLabel.text(
+                    fileType: book.fileType,
+                    currentIndex: coordinator.currentChapter,
+                    total: coordinator.totalChapters,
+                    pdfCurrentPage: coordinator.pdfCurrentPage
+                ))
+                .font(.subheadline)
+                .foregroundStyle(themeManager.currentTheme.secondaryText)
             }
 
             Spacer()
