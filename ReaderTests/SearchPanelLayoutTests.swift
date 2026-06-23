@@ -134,4 +134,57 @@ final class SearchPanelLayoutTests: XCTestCase {
         XCTAssertTrue(EPUBScripts.bootScript.contains("ReaderGoToSearchResult"))
         XCTAssertTrue(EPUBScripts.bootScript.contains("reader-search-hit"))
     }
+
+    func testMDParserKeepsMarkdownAsSingleEditableDocument() async throws {
+        let markdown = """
+        # Reader 阅读器测试文档
+
+        这是一份用于测试 **Markdown 渲染**功能的示例文件。
+
+        ## 基本语法
+
+        ### 文本格式
+
+        `这是行内代码`
+
+        ## 第二章
+
+        这是第二章的内容。
+        """
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("md")
+        try markdown.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MDParser().parse(fileAt: url)
+
+        XCTAssertEqual(parsed.renderer, .markdown)
+        XCTAssertEqual(parsed.chapters.count, 1)
+        XCTAssertEqual(parsed.toc.count, 1)
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("# Reader 阅读器测试文档"))
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("## 基本语法"))
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("`这是行内代码`"))
+        XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("<p>"))
+    }
+
+    @MainActor
+    func testBookLibraryImportsMarkdownExtensionAsMD() throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let storage = StorageService(modelContext: container.mainContext)
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let library = BookLibrary(storageService: storage, appSupportDirectory: appSupport)
+        let source = appSupport.appendingPathComponent("note.markdown")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try "# Title".write(to: source, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: appSupport) }
+
+        let book = try library.importBook(at: source)
+
+        XCTAssertEqual(book.fileType, .md)
+    }
 }

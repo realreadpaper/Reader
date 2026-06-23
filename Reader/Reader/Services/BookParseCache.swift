@@ -24,7 +24,7 @@ struct CachedTOCEntry: Codable {
 
 final class BookParseCache {
     static let shared = BookParseCache()
-    private static let cacheFormatVersion = "html-pages-v2"
+    private static let cacheFormatVersion = "text-md-single-v3"
 
     private let cacheDir: URL
     private let fileManager = FileManager.default
@@ -62,7 +62,13 @@ final class BookParseCache {
         let toc = cached.toc.map {
             ParsedTOCEntry(title: $0.title, chapterIndex: $0.chapterIndex)
         }
-        let renderer: RendererKind = cached.rendererRaw == "pdfKit" ? .pdfKit : .html
+        let renderer: RendererKind
+        switch cached.rendererRaw {
+        case "pdfKit": renderer = .pdfKit
+        case "markdown": renderer = .markdown
+        case "plaintext": renderer = .plaintext
+        default: renderer = .html
+        }
         let resourceDir: URL? = cached.resourceDirectoryPath.flatMap {
             fileManager.fileExists(atPath: $0) ? URL(fileURLWithPath: $0) : nil
         }
@@ -94,7 +100,7 @@ final class BookParseCache {
                 CachedTOCEntry(title: $0.title, chapterIndex: $0.chapterIndex)
             },
             resourceDirectoryPath: parsed.resourceDirectory?.path,
-            rendererRaw: parsed.renderer == .pdfKit ? "pdfKit" : "html",
+            rendererRaw: rawRendererName(parsed.renderer),
             cachedAt: Date()
         )
 
@@ -119,5 +125,14 @@ final class BookParseCache {
             return 0
         }
         return files.compactMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }.reduce(0, +)
+    }
+
+    private func rawRendererName(_ renderer: RendererKind) -> String {
+        switch renderer {
+        case .html: return "html"
+        case .pdfKit: return "pdfKit"
+        case .markdown: return "markdown"
+        case .plaintext: return "plaintext"
+        }
     }
 }

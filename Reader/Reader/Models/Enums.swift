@@ -6,6 +6,17 @@ enum FileType: String, Codable, CaseIterable {
     case pdf
     case txt
     case md
+
+    static func fromFileExtension(_ ext: String) -> FileType? {
+        switch ext.lowercased() {
+        case "epub": return .epub
+        case "mobi": return .mobi
+        case "pdf": return .pdf
+        case "txt": return .txt
+        case "md", "markdown": return .md
+        default: return nil
+        }
+    }
 }
 
 enum HighlightColor: String, Codable, CaseIterable {

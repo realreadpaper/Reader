@@ -9,72 +9,59 @@ struct MDRendererView: View {
     let themeManager: ThemeManager
     let storageService: StorageService
 
-    @State private var isEditing = true
+    @State private var selectedTab: MDTab = .edit
     @State private var editedContent: String = ""
     @State private var originalContent: String = ""
     @State private var hasUnsavedChanges = false
 
+    enum MDTab: String, CaseIterable {
+        case edit = "编辑"
+        case preview = "预览"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Spacer()
-
-                Button(action: { isEditing = true }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "pencil")
-                        Text("编辑")
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(isEditing ? themeManager.currentTheme.accent : Color.clear)
-                    .foregroundStyle(isEditing ? .white : themeManager.currentTheme.secondaryText)
-                    .cornerRadius(4)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: { isEditing = false }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "eye")
-                        Text("预览")
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(!isEditing ? themeManager.currentTheme.accent : Color.clear)
-                    .foregroundStyle(!isEditing ? .white : themeManager.currentTheme.secondaryText)
-                    .cornerRadius(4)
-                }
-                .buttonStyle(.plain)
-
-                if hasUnsavedChanges {
-                    Button(action: saveChanges) {
+            // Tab 栏
+            HStack(spacing: 0) {
+                ForEach(MDTab.allCases, id: \.self) { tab in
+                    Button(action: { selectedTab = tab }) {
                         HStack(spacing: 4) {
-                            Image(systemName: "square.and.arrow.down")
-                            Text("保存")
+                            Image(systemName: tab == .edit ? "pencil" : "eye")
+                            Text(tab.rawValue)
                         }
-                        .font(.caption)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Color.green)
-                        .foregroundStyle(.white)
-                        .cornerRadius(4)
+                        .font(.subheadline)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            selectedTab == tab
+                                ? themeManager.currentTheme.accent
+                                : Color.clear
+                        )
+                        .foregroundStyle(
+                            selectedTab == tab
+                                ? .white
+                                : themeManager.currentTheme.secondaryText
+                        )
                     }
                     .buttonStyle(.plain)
                 }
-
-                Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
             .background(themeManager.currentTheme.sidebarBG)
+            .overlay(alignment: .bottom) {
+                Divider().background(themeManager.currentTheme.border)
+            }
 
-            if isEditing {
+            // 内容区
+            if selectedTab == .edit {
                 MDEditorView(
                     content: $editedContent,
                     hasChanges: $hasUnsavedChanges,
                     theme: themeManager.currentTheme
                 )
+                .onChange(of: editedContent) { _, _ in
+                    hasUnsavedChanges = (editedContent != originalContent)
+                }
             } else {
                 MDPreviewView(
                     content: editedContent,
@@ -86,9 +73,6 @@ struct MDRendererView: View {
             loadContent()
         }
         .onChange(of: currentChapter) { _, _ in
-            if hasUnsavedChanges {
-                saveChanges()
-            }
             loadContent()
         }
     }
@@ -96,23 +80,8 @@ struct MDRendererView: View {
     private func loadContent() {
         guard currentChapter < chapters.count else { return }
         let chapter = chapters[currentChapter]
-        let html = chapter.htmlContent
-
-        let plainText = html
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        originalContent = plainText
-        editedContent = plainText
-        hasUnsavedChanges = false
-    }
-
-    private func saveChanges() {
-        guard hasUnsavedChanges else { return }
+        originalContent = chapter.htmlContent
+        editedContent = chapter.htmlContent
         hasUnsavedChanges = false
     }
 }
@@ -124,7 +93,7 @@ struct MDEditorView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        let textView = NSTextView()
+        let textView = MarkdownTextView()
 
         textView.isEditable = true
         textView.isSelectable = true
@@ -137,11 +106,16 @@ struct MDEditorView: NSViewRepresentable {
         ]
         textView.textContainerInset = NSSize(width: 20, height: 20)
         textView.textContainer?.lineFragmentPadding = 0
+        textView.autoresizingMask = [.width, .height]
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.textContainer?.widthTracksTextView = true
         textView.delegate = context.coordinator
 
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
+        scrollView.autohidesScrollers = true
 
         textView.string = content
 
@@ -150,7 +124,7 @@ struct MDEditorView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
-        if textView.string != content && !context.coordinator.isEditing {
+        if !context.coordinator.isTyping && textView.string != content {
             textView.string = content
         }
     }
@@ -159,7 +133,8 @@ struct MDEditorView: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MDEditorView
-        var isEditing = false
+        var isTyping = false
+        private var updateTimer: Timer?
 
         init(_ parent: MDEditorView) {
             self.parent = parent
@@ -167,13 +142,27 @@ struct MDEditorView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            isEditing = true
+            isTyping = true
             parent.content = textView.string
             parent.hasChanges = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.isEditing = false
+
+            updateTimer?.invalidate()
+            updateTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+                self?.isTyping = false
             }
         }
+    }
+}
+
+class MarkdownTextView: NSTextView {
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        super.keyDown(with: event)
+    }
+
+    override func paste(_ sender: Any?) {
+        super.paste(sender)
     }
 }
 
@@ -267,10 +256,7 @@ struct MDPreviewView: NSViewRepresentable {
                     padding: 2px 4px;
                     border-radius: 3px;
                 }
-                pre code {
-                    background: none;
-                    padding: 0;
-                }
+                pre code { background: none; padding: 0; }
                 blockquote {
                     border-left: 3px solid \(theme.accent.hex);
                     margin: 1em 0;

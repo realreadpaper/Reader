@@ -23,7 +23,7 @@ final class BookLibrary {
         }
 
         let ext = url.pathExtension.lowercased()
-        let fileType = FileType(rawValue: ext) ?? .epub
+        let fileType = FileType.fromFileExtension(ext) ?? .epub
         let title = url.deletingPathExtension().lastPathComponent
 
         return storageService.addBook(title: title, filePath: destination.path, fileType: fileType)
