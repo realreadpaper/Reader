@@ -28,6 +28,8 @@ struct ParsedTOCEntry {
 enum RendererKind {
     case html
     case pdfKit
+    case markdown
+    case plaintext
 }
 
 protocol BookParser {
@@ -40,6 +42,8 @@ enum BookParserRegistry {
         case .epub: return EPUBParser()
         case .mobi: return MOBIParser()
         case .pdf:  return PDFParser()
+        case .txt:  return TXTParser()
+        case .md:   return MDParser()
         }
     }
 

@@ -4,6 +4,8 @@ enum FileType: String, Codable, CaseIterable {
     case epub
     case mobi
     case pdf
+    case txt
+    case md
 }
 
 enum HighlightColor: String, Codable, CaseIterable {

@@ -7,6 +7,9 @@ private let supportedImportTypes: [UTType] = {
     if let epub = UTType(filenameExtension: "epub") { types.append(epub) }
     if let mobi = UTType(filenameExtension: "mobi") { types.append(mobi) }
     if let pdf = UTType(filenameExtension: "pdf") { types.append(pdf) }
+    if let txt = UTType(filenameExtension: "txt") { types.append(txt) }
+    if let md = UTType(filenameExtension: "md") { types.append(md) }
+    if let markdown = UTType(filenameExtension: "markdown") { types.append(markdown) }
     return types
 }()
 

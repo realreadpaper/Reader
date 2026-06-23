@@ -146,7 +146,7 @@ struct SearchPanelView: View {
                     } else {
                         ForEach(epubResults) { result in
                             Button(action: {
-                                onResultSelect(.epubChapter(result.chapterIndex))
+                                onResultSelect(.epubSearch(chapterIndex: result.chapterIndex, query: result.query))
                             }) {
                                 searchRow(title: result.chapterTitle, snippet: result.snippet)
                             }
@@ -285,7 +285,8 @@ struct SearchPanelView: View {
         } else {
             let r = epubResults
             if currentResultIndex >= 0 && currentResultIndex < r.count {
-                onResultSelect(.epubChapter(r[currentResultIndex].chapterIndex))
+                let result = r[currentResultIndex]
+                onResultSelect(.epubSearch(chapterIndex: result.chapterIndex, query: result.query))
             }
         }
     }

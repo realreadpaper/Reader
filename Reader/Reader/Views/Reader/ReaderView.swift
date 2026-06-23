@@ -189,6 +189,33 @@ struct ReaderView: View {
             }
         case .pdf:
             PDFRendererView(book: book, coordinator: coordinator, settings: settings)
+        case .txt:
+            if !coordinator.chapters.isEmpty {
+                TXTRendererView(
+                    book: book,
+                    chapters: coordinator.chapters,
+                    currentChapter: $coordinator.currentChapter,
+                    progress: $coordinator.progress,
+                    themeManager: themeManager
+                )
+            } else {
+                Text("加载中...")
+                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+            }
+        case .md:
+            if !coordinator.chapters.isEmpty {
+                MDRendererView(
+                    book: book,
+                    chapters: coordinator.chapters,
+                    currentChapter: $coordinator.currentChapter,
+                    progress: $coordinator.progress,
+                    themeManager: themeManager,
+                    storageService: storageService
+                )
+            } else {
+                Text("加载中...")
+                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+            }
         }
     }
 
@@ -244,8 +271,13 @@ struct ReaderView: View {
     @MainActor
     private func handleSearchResult(_ result: SearchResultTarget) {
         switch result {
-        case .epubChapter(let index):
+        case .epubSearch(let index, let query):
             coordinator.navigateToChapter(index)
+            NotificationCenter.default.post(
+                name: .epubSearchRequest,
+                object: nil,
+                userInfo: ["chapterIndex": index, "query": query]
+            )
             coordinator.showSearch = false
         case .pdfPage(let pageIndex):
             coordinator.navigateToChapter(pageIndex)
@@ -255,7 +287,7 @@ struct ReaderView: View {
 }
 
 enum SearchResultTarget {
-    case epubChapter(Int)
+    case epubSearch(chapterIndex: Int, query: String)
     case pdfPage(Int)
 }
 
@@ -430,4 +462,5 @@ struct BookmarkListView: View {
 
 extension Notification.Name {
     static let applyHighlightRequest = Notification.Name("applyHighlightRequest")
+    static let epubSearchRequest = Notification.Name("epubSearchRequest")
 }

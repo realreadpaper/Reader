@@ -100,6 +100,31 @@ final class RenderCoordinator {
                 self.pdfCurrentPage = clamped + 1
                 self.progress = Double(clamped + 1) / Double(doc.pageCount)
             }
+        case .markdown, .plaintext:
+            if parsed.chapters.isEmpty {
+                self.loadError = "文件内容为空"
+                return
+            }
+            let metadata = EPUBMetadata(
+                title: parsed.title,
+                author: parsed.author,
+                chapters: parsed.chapters.map {
+                    EPUBChapter(
+                        title: $0.title,
+                        htmlContent: $0.bodyHTML,
+                        fileName: $0.sourcePath,
+                        spineIndex: 0
+                    )
+                },
+                tocEntries: parsed.toc.map {
+                    EPUBTOCEntry(title: $0.title, chapterIndex: $0.chapterIndex)
+                },
+                resourceDirectory: parsed.resourceDirectory ?? FileManager.default.temporaryDirectory
+            )
+            self.epubMetadata = metadata
+            self.currentChapter = min(currentChapter, max(0, metadata.chapters.count - 1))
+            self.epubCurrentPage = 0
+            self.epubPageCount = 0
         }
     }
 
@@ -153,7 +178,7 @@ final class RenderCoordinator {
 
     var totalChapters: Int {
         switch book.fileType {
-        case .epub, .mobi:
+        case .epub, .mobi, .txt, .md:
             return epubPageCount > 0 ? epubPageCount : chapters.count
         case .pdf:
             return pdfPageCount
@@ -162,7 +187,7 @@ final class RenderCoordinator {
 
     var displayCurrentPage: Int {
         switch book.fileType {
-        case .epub, .mobi:
+        case .epub, .mobi, .txt, .md:
             return epubCurrentPage > 0 ? epubCurrentPage : currentChapter + 1
         case .pdf:
             return pdfCurrentPage
@@ -204,20 +229,20 @@ final class RenderCoordinator {
 
     func searchEPUB(_ query: String) async -> [EPUBSearchResult] {
         let chapters = self.chapters
-        guard !query.isEmpty, !chapters.isEmpty else { return [] }
+        let normalizedQuery = Self.normalizedSearchText(query)
+        guard !normalizedQuery.isEmpty, !chapters.isEmpty else { return [] }
         return await Task.detached(priority: .userInitiated) {
             var results: [EPUBSearchResult] = []
             for (index, chapter) in chapters.enumerated() {
                 guard !Task.isCancelled else { return [] }
-                let plainText = chapter.htmlContent
-                    .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-                    .replacingOccurrences(of: "&nbsp;", with: " ")
-                if plainText.range(of: query, options: .caseInsensitive) != nil {
-                    let snippet = Self.makeSnippet(from: plainText, query: query)
+                let plainText = Self.visibleText(fromEPUBHTML: chapter.htmlContent)
+                if plainText.range(of: normalizedQuery, options: .caseInsensitive) != nil {
+                    let snippet = Self.makeSnippet(from: plainText, query: normalizedQuery)
                     results.append(EPUBSearchResult(
                         chapterTitle: chapter.title,
                         chapterIndex: index,
-                        snippet: snippet
+                        snippet: snippet,
+                        query: normalizedQuery
                     ))
                     if results.count >= 200 { break }
                 }
@@ -231,6 +256,7 @@ final class RenderCoordinator {
         let chapterTitle: String
         let chapterIndex: Int
         let snippet: String
+        let query: String
     }
 
     nonisolated private static func findInPDF(
@@ -262,6 +288,83 @@ final class RenderCoordinator {
         let prefix = start == text.startIndex ? "" : "..."
         let suffix = end == text.endIndex ? "" : "..."
         return prefix + String(text[start..<end]) + suffix
+    }
+
+    nonisolated private static func visibleText(fromEPUBHTML html: String) -> String {
+        var text = EPUBScripts.extractBodyContent(from: html)
+        text = text.replacingOccurrences(
+            of: #"<!--[\s\S]*?-->"#,
+            with: " ",
+            options: .regularExpression
+        )
+        for tag in ["script", "style", "noscript", "svg"] {
+            text = text.replacingOccurrences(
+                of: #"(?i)<\#(tag)\b[\s\S]*?</\#(tag)\s*>"#,
+                with: " ",
+                options: .regularExpression
+            )
+        }
+        text = text.replacingOccurrences(
+            of: #"(?i)<br\b[^>]*>|</(p|div|section|article|h[1-6]|li|tr|td|th|blockquote)\s*>"#,
+            with: " ",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
+        text = decodeHTMLEntities(in: text)
+        return normalizedSearchText(text)
+    }
+
+    nonisolated private static func normalizedSearchText(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\u{00a0}", with: " ")
+            .replacingOccurrences(of: #"[\s\p{Z}]+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated private static func decodeHTMLEntities(in text: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"&(#x[0-9A-Fa-f]+|#[0-9]+|[A-Za-z][A-Za-z0-9]+);"#) else {
+            return text
+        }
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        var result = text
+        for match in regex.matches(in: text, range: nsRange).reversed() {
+            guard let fullRange = Range(match.range(at: 0), in: text),
+                  let entityRange = Range(match.range(at: 1), in: text) else { continue }
+            let entity = String(text[entityRange])
+            guard let decoded = decodedHTMLEntity(entity) else { continue }
+            result.replaceSubrange(fullRange, with: decoded)
+        }
+        return result
+    }
+
+    nonisolated private static func decodedHTMLEntity(_ entity: String) -> String? {
+        if entity.hasPrefix("#x") || entity.hasPrefix("#X") {
+            guard let value = UInt32(entity.dropFirst(2), radix: 16),
+                  let scalar = UnicodeScalar(value) else { return nil }
+            return String(scalar)
+        }
+        if entity.hasPrefix("#") {
+            guard let value = UInt32(entity.dropFirst(), radix: 10),
+                  let scalar = UnicodeScalar(value) else { return nil }
+            return String(scalar)
+        }
+
+        switch entity.lowercased() {
+        case "amp": return "&"
+        case "lt": return "<"
+        case "gt": return ">"
+        case "quot": return "\""
+        case "apos": return "'"
+        case "nbsp": return " "
+        case "ensp", "emsp", "thinsp": return " "
+        case "ndash": return "-"
+        case "mdash": return "-"
+        case "lsquo", "rsquo": return "'"
+        case "ldquo", "rdquo": return "\""
+        case "hellip": return "..."
+        case "middot": return "·"
+        default: return nil
+        }
     }
 
     private func buildPDFOutline(from document: PDFDocument) -> [(title: String, pageIndex: Int)] {

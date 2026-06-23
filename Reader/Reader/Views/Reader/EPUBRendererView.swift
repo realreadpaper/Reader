@@ -68,6 +68,7 @@ struct EPUBWebView: NSViewRepresentable {
 
         context.coordinator.webView = webView
         context.coordinator.startObservingHighlightRequests()
+        context.coordinator.startObservingSearchRequests()
 
         if !chapters.isEmpty {
             context.coordinator.loadBook(
@@ -105,6 +106,7 @@ struct EPUBWebView: NSViewRepresentable {
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: EPUBWebView.Coordinator) {
         coordinator.stopObservingHighlightRequests()
+        coordinator.stopObservingSearchRequests()
         coordinator.webView = nil
     }
 
@@ -122,6 +124,7 @@ struct EPUBWebView: NSViewRepresentable {
         private var appliedFontSize: Double = 0
         private var appliedLineHeight: Double = 0
         private var highlightObserver: NSObjectProtocol?
+        private var searchObserver: NSObjectProtocol?
 
         init(parent: EPUBWebView) {
             self.parent = parent
@@ -129,6 +132,9 @@ struct EPUBWebView: NSViewRepresentable {
 
         deinit {
             if let obs = highlightObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            if let obs = searchObserver {
                 NotificationCenter.default.removeObserver(obs)
             }
         }
@@ -151,6 +157,28 @@ struct EPUBWebView: NSViewRepresentable {
             if let obs = highlightObserver {
                 NotificationCenter.default.removeObserver(obs)
                 highlightObserver = nil
+            }
+        }
+
+        func startObservingSearchRequests() {
+            guard searchObserver == nil else { return }
+            searchObserver = NotificationCenter.default.addObserver(
+                forName: .epubSearchRequest,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let chapterIndex = notification.userInfo?["chapterIndex"] as? Int,
+                      let query = notification.userInfo?["query"] as? String,
+                      !query.isEmpty else { return }
+                self.goToSearchResult(chapterIndex: chapterIndex, query: query)
+            }
+        }
+
+        func stopObservingSearchRequests() {
+            if let obs = searchObserver {
+                NotificationCenter.default.removeObserver(obs)
+                searchObserver = nil
             }
         }
 
@@ -178,6 +206,16 @@ struct EPUBWebView: NSViewRepresentable {
             guard index >= 0, index < parent.chapters.count else { return }
             visibleChapter = index
             webView?.evaluateJavaScript("window.ReaderGoToChapter && window.ReaderGoToChapter(\(index));", completionHandler: nil)
+        }
+
+        func goToSearchResult(chapterIndex: Int, query: String) {
+            guard chapterIndex >= 0, chapterIndex < parent.chapters.count else { return }
+            visibleChapter = chapterIndex
+            let queryLiteral = javaScriptStringLiteral(query)
+            webView?.evaluateJavaScript(
+                "window.ReaderGoToSearchResult && window.ReaderGoToSearchResult(\(chapterIndex), \(queryLiteral));",
+                completionHandler: nil
+            )
         }
 
         func applyStyles(theme: AppTheme, fontSize: Double, lineHeight: Double) {
@@ -267,6 +305,21 @@ struct EPUBWebView: NSViewRepresentable {
 
         func clearSelection() {
             webView?.evaluateJavaScript("window.ReaderClearSelection();", completionHandler: nil)
+        }
+
+        private func javaScriptStringLiteral(_ value: String) -> String {
+            if let data = try? JSONSerialization.data(withJSONObject: [value]),
+               let arrayLiteral = String(data: data, encoding: .utf8),
+               arrayLiteral.count >= 2 {
+                return String(arrayLiteral.dropFirst().dropLast())
+            }
+
+            let escaped = value
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+            return "'\(escaped)'"
         }
     }
 }
@@ -489,6 +542,10 @@ enum EPUBScripts {
     .reader-highlight-green  { background-color: rgba(126, 200, 160, 0.55) !important; }
     .reader-highlight-orange { background-color: rgba(232, 168, 124, 0.55) !important; }
     .reader-highlight-blue   { background-color: rgba(160, 184, 232, 0.55) !important; }
+    .reader-search-hit {
+      background-color: rgba(245, 213, 110, 0.72) !important;
+      border-radius: 2px;
+    }
     """
 
     static let bootScript: String = """
@@ -650,6 +707,108 @@ enum EPUBScripts {
           var left = rect.left - vRect.left + v.scrollLeft;
           goToPage(Math.floor(left / pageWidth()), 'smooth');
         } catch(e) {}
+      };
+
+      function removeSearchHits() {
+        try {
+          var hits = document.querySelectorAll('span.reader-search-hit');
+          hits.forEach(function(hit) {
+            var parent = hit.parentNode;
+            if (!parent) return;
+            parent.insertBefore(document.createTextNode(hit.textContent || ''), hit);
+            parent.removeChild(hit);
+            parent.normalize();
+          });
+        } catch(e) {}
+      }
+
+      function normalizedSearchText(value) {
+        return (value || '').replace(/\\u00a0/g, ' ').replace(/[\\s\\u00a0]+/g, ' ').trim();
+      }
+
+      function textNodesIn(root) {
+        var nodes = [];
+        try {
+          var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: function(node) {
+              if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+              var parent = node.parentElement;
+              if (!parent) return NodeFilter.FILTER_REJECT;
+              if (parent.closest('script, style, noscript, svg')) return NodeFilter.FILTER_REJECT;
+              return NodeFilter.FILTER_ACCEPT;
+            }
+          });
+          var node = walker.nextNode();
+          while (node) {
+            nodes.push(node);
+            node = walker.nextNode();
+          }
+        } catch(e) {}
+        return nodes;
+      }
+
+      function scrollToRange(range) {
+        var v = viewport();
+        if (!v || !range) return;
+        var rect = range.getBoundingClientRect();
+        if (!rect || (rect.width === 0 && rect.height === 0)) return;
+        var vRect = v.getBoundingClientRect();
+        var left = rect.left - vRect.left + v.scrollLeft;
+        goToPage(Math.floor(left / pageWidth()), 'smooth');
+      }
+
+      window.ReaderGoToSearchResult = function(index, query) {
+        try {
+          removeSearchHits();
+          var section = document.querySelector('.reader-chapter[data-reader-chapter="' + index + '"]');
+          if (!section) return false;
+
+          var normalizedQuery = normalizedSearchText(query).toLocaleLowerCase();
+          if (!normalizedQuery) return false;
+
+          var nodes = textNodesIn(section);
+          var fullText = '';
+          var offsets = [];
+          nodes.forEach(function(node) {
+            var text = (node.nodeValue || '').replace(/\\u00a0/g, ' ');
+            offsets.push({ node: node, start: fullText.length, end: fullText.length + text.length });
+            fullText += text;
+          });
+
+          var foundAt = fullText.toLocaleLowerCase().indexOf(normalizedQuery);
+          if (foundAt < 0) {
+            window.ReaderGoToChapter(index);
+            return false;
+          }
+
+          var foundEnd = foundAt + normalizedQuery.length;
+          var startInfo = offsets.find(function(info) { return foundAt >= info.start && foundAt <= info.end; });
+          var endInfo = offsets.find(function(info) { return foundEnd >= info.start && foundEnd <= info.end; });
+          if (!startInfo || !endInfo) {
+            window.ReaderGoToChapter(index);
+            return false;
+          }
+
+          var range = document.createRange();
+          range.setStart(startInfo.node, Math.max(0, foundAt - startInfo.start));
+          range.setEnd(endInfo.node, Math.max(0, foundEnd - endInfo.start));
+
+          try {
+            var mark = document.createElement('span');
+            mark.className = 'reader-search-hit';
+            range.surroundContents(mark);
+            var markRange = document.createRange();
+            markRange.selectNodeContents(mark);
+            scrollToRange(markRange);
+          } catch(e) {
+            scrollToRange(range);
+          }
+
+          setTimeout(reportProgress, 120);
+          return true;
+        } catch(e) {
+          return false;
+        }
       };
 
       function installPagingHandlers() {

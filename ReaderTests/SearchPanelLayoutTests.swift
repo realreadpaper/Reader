@@ -1,4 +1,5 @@
 import XCTest
+import SwiftData
 @testable import Reader
 
 final class SearchPanelLayoutTests: XCTestCase {
@@ -89,5 +90,48 @@ final class SearchPanelLayoutTests: XCTestCase {
             ReaderPositionLabel.text(currentPage: 4, total: 7),
             "第 4 页 / 共 7 页"
         )
+    }
+
+    @MainActor
+    func testEPUBSearchDecodesHTMLEntitiesAndIgnoresHiddenMarkup() async throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let book = Book(title: "EPUB", filePath: "/tmp/book.epub", fileType: .epub)
+        let coordinator = RenderCoordinator(
+            book: book,
+            storageService: StorageService(modelContext: container.mainContext)
+        )
+        coordinator.epubMetadata = EPUBMetadata(
+            title: "EPUB",
+            author: nil,
+            chapters: [
+                EPUBChapter(
+                    title: "Chapter",
+                    htmlContent: """
+                    <html><head><style>.hidden{content:'隐藏命中'}</style><script>var x='隐藏命中';</script></head>
+                    <body><p>逻辑&amp;思维&nbsp;能力来自&#x4E2D;&#22269;经验。</p></body></html>
+                    """,
+                    fileName: "chapter.xhtml",
+                    spineIndex: 0
+                )
+            ],
+            tocEntries: [],
+            resourceDirectory: URL(fileURLWithPath: "/tmp")
+        )
+
+        let decodedResults = await coordinator.searchEPUB("逻辑&思维 能力来自中国")
+        XCTAssertEqual(decodedResults.count, 1)
+        guard !decodedResults.isEmpty else { return }
+        XCTAssertTrue(decodedResults[0].snippet.contains("逻辑&思维 能力来自中国"))
+
+        let hiddenResults = await coordinator.searchEPUB("隐藏命中")
+        XCTAssertTrue(hiddenResults.isEmpty)
+    }
+
+    func testEPUBSearchNavigationScriptCanLocateQueryWithinChapter() {
+        XCTAssertTrue(EPUBScripts.bootScript.contains("ReaderGoToSearchResult"))
+        XCTAssertTrue(EPUBScripts.bootScript.contains("reader-search-hit"))
     }
 }
