@@ -4,13 +4,10 @@ struct TopBarView: View {
     let book: Book
     let coordinator: RenderCoordinator
     let storageService: StorageService
-    let settings: ReaderSettings
+    let themeManager: ThemeManager
     let onTOCToggle: () -> Void
     let onSearchToggle: () -> Void
     let onFontToggle: () -> Void
-    let onAnnotationsToggle: () -> Void
-
-    @Environment(ThemeManager.self) private var themeManager
 
     var body: some View {
         HStack(spacing: 12) {
@@ -19,7 +16,6 @@ struct TopBarView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(themeManager.currentTheme.accent)
-            .help("目录 (⌘\\)")
 
             Text(coordinator.currentTitle)
                 .font(.subheadline)
@@ -29,20 +25,16 @@ struct TopBarView: View {
 
             Spacer()
 
-            HStack(spacing: 14) {
+            HStack(spacing: 16) {
                 Button(action: onSearchToggle) {
                     Image(systemName: "magnifyingglass")
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut("f", modifiers: .command)
-                .help("搜索 (⌘F)")
 
                 Button(action: addBookmark) {
                     Image(systemName: "bookmark")
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut("d", modifiers: .command)
-                .help("添加书签 (⌘D)")
 
                 Button(action: onFontToggle) {
                     Text("Aa")
@@ -50,28 +42,6 @@ struct TopBarView: View {
                         .fontWeight(.medium)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut("t", modifiers: .command)
-                .help("字体设置 (⌘T)")
-
-                Button(action: onAnnotationsToggle) {
-                    Image(systemName: "highlighter")
-                }
-                .buttonStyle(.plain)
-                .help("标注与书签")
-
-                Button(action: decreaseFont) {
-                    Image(systemName: "textformat.size.smaller")
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut("-", modifiers: .command)
-                .help("缩小字体 (⌘-)")
-
-                Button(action: increaseFont) {
-                    Image(systemName: "textformat.size.larger")
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut("+", modifiers: .command)
-                .help("放大字体 (⌘+)")
             }
             .foregroundStyle(themeManager.currentTheme.secondaryText)
         }
@@ -83,26 +53,17 @@ struct TopBarView: View {
         }
     }
 
-    @MainActor
     private func addBookmark() {
-        let position: String
-        if book.fileType == .pdf {
-            position = "pdf:\(coordinator.pdfCurrentPage)"
-        } else {
-            position = "epub:\(coordinator.currentChapter):\(coordinator.progress)"
+        let position = "\(coordinator.currentChapter):\(coordinator.progress)"
+        let chapter = coordinator.tocEntries[safe: coordinator.currentChapter]?.title
+        Task {
+            await storageService.addBookmark(to: book, position: position, chapter: chapter)
         }
-        _ = storageService.addBookmark(
-            to: book,
-            position: position,
-            chapter: coordinator.currentTitle
-        )
     }
+}
 
-    private func increaseFont() {
-        settings.fontSize = min(28, settings.fontSize + 1)
-    }
-
-    private func decreaseFont() {
-        settings.fontSize = max(12, settings.fontSize - 1)
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

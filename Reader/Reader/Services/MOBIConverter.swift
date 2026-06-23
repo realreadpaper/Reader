@@ -13,42 +13,56 @@ final class MOBIConverter {
         self.converterPath = paths.first { FileManager.default.fileExists(atPath: $0) }
     }
 
-    var isAvailable: Bool { converterPath != nil }
+    var isAvailable: Bool {
+        converterPath != nil
+    }
 
-    func convertToEPUB(mobiURL: URL) async throws -> URL {
+    func convertToEPUB(mobiURL: URL) throws -> URL {
         guard let converterPath else {
-            throw BookParseError.calibreNotInstalled
+            throw MOBIError.converterNotFound
         }
 
-        let outputDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ReaderMOBI", isDirectory: true)
-        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        let outputURL = outputDir.appendingPathComponent("\(UUID().uuidString).epub")
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(mobiURL.deletingPathExtension().lastPathComponent).epub")
 
-        let converterPathCopy = converterPath
-        let mobiPathCopy = mobiURL.path
-        let outputPathCopy = outputURL.path
-        try await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: converterPathCopy)
-            process.arguments = [mobiPathCopy, outputPathCopy]
-            let errorPipe = Pipe()
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = errorPipe
-            try process.run()
-            process.waitUntilExit()
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            return outputURL
+        }
 
-            guard process.terminationStatus == 0 else {
-                let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                let msg = String(data: data, encoding: .utf8) ?? "未知错误"
-                try? FileManager.default.removeItem(at: URL(fileURLWithPath: outputPathCopy))
-                throw BookParseError.calibreConversionFailed(stderr: msg)
-            }
-        }.value
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: converterPath)
+        process.arguments = [mobiURL.path, outputURL.path]
+
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorMessage = String(data: errorData, encoding: .utf8) ?? "未知错误"
+            throw MOBIError.conversionFailed(errorMessage)
+        }
 
         guard FileManager.default.fileExists(atPath: outputURL.path) else {
-            throw BookParseError.calibreConversionFailed(stderr: "转换后文件不存在")
+            throw MOBIError.conversionFailed("转换后文件不存在")
         }
+
         return outputURL
+    }
+}
+
+enum MOBIError: Error, LocalizedError {
+    case converterNotFound
+    case conversionFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .converterNotFound:
+            return "未找到 ebook-convert 工具，请安装 calibre"
+        case .conversionFailed(let msg):
+            return "MOBI 转换失败: \(msg)"
+        }
     }
 }
