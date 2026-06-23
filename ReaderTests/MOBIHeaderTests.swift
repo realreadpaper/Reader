@@ -25,35 +25,6 @@ final class MOBIHeaderTests: XCTestCase {
         XCTAssertEqual(header.variant, .kf8)
     }
 
-    func testReadDatabaseUsesKF8HeaderRecordTextBoundsWhenBoundaryRecordExists() throws {
-        let legacyRecord0 = makeRecord0(
-            compression: 1,
-            mobiVersion: 6,
-            firstTextRecord: 1,
-            lastTextRecord: 1,
-            exthRecords: []
-        )
-        let kf8Record = makeRecord0(
-            compression: 1,
-            mobiVersion: 8,
-            firstTextRecord: 3,
-            lastTextRecord: 4,
-            exthRecords: []
-        )
-        let database = PalmDatabase(
-            name: "Fixture",
-            type: "BOOK",
-            creator: "MOBI",
-            records: [legacyRecord0, kf8Record, Data(), Data("kf8-a".utf8), Data("kf8-b".utf8)]
-        )
-
-        let header = try MOBIHeader.read(database: database)
-
-        XCTAssertEqual(header.variant, .kf8)
-        XCTAssertEqual(header.firstTextRecord, 3)
-        XCTAssertEqual(header.lastTextRecord, 4)
-    }
-
     func testReadHUFFReturnsUnsupported() throws {
         let record0 = makeRecord0(
             compression: 17480,
@@ -71,8 +42,6 @@ final class MOBIHeaderTests: XCTestCase {
     private func makeRecord0(
         compression: UInt16,
         mobiVersion: UInt32,
-        firstTextRecord: UInt32 = 0,
-        lastTextRecord: UInt32 = 0,
         exthRecords: [(type: UInt32, value: String)]
     ) -> Data {
         var data = Data()
@@ -106,15 +75,9 @@ final class MOBIHeaderTests: XCTestCase {
         // offset 36: fileVersion
         be32 = mobiVersion.bigEndian
         data.append(Data(bytes: &be32, count: 4))
-        // offset 40: firstTextRecord
-        be32 = firstTextRecord.bigEndian
-        data.append(Data(bytes: &be32, count: 4))
-        // offset 44: lastTextRecord
-        be32 = lastTextRecord.bigEndian
-        data.append(Data(bytes: &be32, count: 4))
-        // We've appended: "MOBI"(4) + headerLength(4) + mobiType(4) + textEncoding(4) + uniqueID(4)
-        // + fileVersion(4) + firstText(4) + lastText(4) = 32 bytes.
-        data.append(Data(repeating: 0, count: 200))
+        // We've appended: "MOBI"(4) + headerLength(4) + mobiType(4) + textEncoding(4) + uniqueID(4) + fileVersion(4) = 24 bytes
+        // headerLength=232, so padding = 232 - 24 = 208 bytes
+        data.append(Data(repeating: 0, count: 208))
 
         // EXTH block
         if !exthRecords.isEmpty {

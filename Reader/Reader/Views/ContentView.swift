@@ -1,50 +1,122 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+
+private let supportedImportTypes: [UTType] = {
+    var types: [UTType] = []
+    if let epub = UTType(filenameExtension: "epub") { types.append(epub) }
+    if let mobi = UTType(filenameExtension: "mobi") { types.append(mobi) }
+    if let pdf = UTType(filenameExtension: "pdf") { types.append(pdf) }
+    return types
+}()
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @State private var themeManager = ThemeManager()
+    @Environment(ThemeManager.self) private var themeManager
+
     @State private var selectedBook: Book?
     @State private var showSidebar = true
     @State private var storageService: StorageService?
+    @State private var library: BookLibrary?
+    @State private var importError: String?
+    @State private var showImportPicker = false
 
     var body: some View {
-        HSplitView {
-            if showSidebar, let storageService {
-                SidebarView(
-                    selectedBook: $selectedBook,
-                    storageService: storageService
-                )
-                .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
-            }
+        Group {
+            if let storageService, let library {
+                HSplitView {
+                    if showSidebar {
+                        SidebarView(
+                            storageService: storageService,
+                            library: library,
+                            selectedBook: $selectedBook,
+                            onRequestImport: { showImportPicker = true },
+                            importError: $importError
+                        )
+                        .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
+                    }
 
-            if let book = selectedBook, let storageService {
-                ReaderView(book: book, themeManager: themeManager, storageService: storageService)
+                    if let book = selectedBook {
+                        ReaderView(
+                            book: book,
+                            storageService: storageService,
+                            library: library
+                        )
+                    } else {
+                        WelcomeView()
+                    }
+                }
             } else {
-                WelcomeView(themeManager: themeManager)
+                LoadingView()
             }
         }
-        .environment(themeManager)
         .frame(minWidth: 800, minHeight: 600)
         .task {
             if storageService == nil {
-                storageService = StorageService(modelContext: modelContext)
+                let service = StorageService(modelContext: modelContext)
+                storageService = service
+                library = BookLibrary(storageService: service)
             }
         }
-        .onAppear {
-            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "s" {
-                    showSidebar.toggle()
-                    return nil
-                }
-                return event
+        .fileImporter(
+            isPresented: $showImportPicker,
+            allowedContentTypes: supportedImportTypes
+        ) { result in
+            handleImportResult(result)
+        }
+        .alert("导入失败", isPresented: Binding(
+            get: { importError != nil },
+            set: { if !$0 { importError = nil } }
+        )) {
+            Button("好") { importError = nil }
+        } message: {
+            Text(importError ?? "")
+        }
+        .background(
+            // 隐藏按钮承载全局快捷键
+            Group {
+                Button("Toggle Sidebar") { showSidebar.toggle() }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                Button("Import") { showImportPicker = true }
+                    .keyboardShortcut("o", modifiers: .command)
             }
+            .opacity(0)
+            .frame(width: 0, height: 0)
+        )
+    }
+
+    @MainActor
+    private func handleImportResult(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                _ = try library?.importBook(at: url)
+            } catch {
+                importError = error.localizedDescription
+            }
+        case .failure(let error):
+            importError = error.localizedDescription
         }
     }
 }
 
+struct LoadingView: View {
+    @Environment(ThemeManager.self) private var themeManager
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("加载中...")
+                .font(.caption)
+                .foregroundStyle(themeManager.currentTheme.secondaryText)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 struct WelcomeView: View {
-    let themeManager: ThemeManager
+    @Environment(ThemeManager.self) private var themeManager
 
     var body: some View {
         VStack(spacing: 20) {
@@ -53,6 +125,9 @@ struct WelcomeView: View {
                 .foregroundStyle(themeManager.currentTheme.accent)
             Text("选择一本书开始阅读")
                 .font(.title2)
+                .foregroundStyle(themeManager.currentTheme.secondaryText)
+            Text("按 ⌘O 导入书籍，或拖拽文件到侧边栏")
+                .font(.caption)
                 .foregroundStyle(themeManager.currentTheme.secondaryText)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

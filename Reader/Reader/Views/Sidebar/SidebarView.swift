@@ -2,10 +2,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SidebarView: View {
-    @Binding var selectedBook: Book?
     let storageService: StorageService
+    let library: BookLibrary
+    @Binding var selectedBook: Book?
+    let onRequestImport: () -> Void
+    @Binding var importError: String?
 
     @State private var selectedTab: SidebarTab = .all
+    @State private var searchText = ""
     @Environment(ThemeManager.self) private var theme
 
     enum SidebarTab: String, CaseIterable {
@@ -21,12 +25,14 @@ struct SidebarView: View {
                     .font(.headline)
                     .foregroundStyle(theme.currentTheme.primaryText)
                 Spacer()
-                Button(action: importBook) {
+                Button(action: onRequestImport) {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .medium))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(theme.currentTheme.accent)
+                .keyboardShortcut("o", modifiers: .command)
+                .help("导入书籍 (⌘O)")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -57,67 +63,82 @@ struct SidebarView: View {
             .padding(.horizontal, 8)
             .padding(.top, 4)
 
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption2)
+                    .foregroundStyle(theme.currentTheme.secondaryText)
+                TextField("筛选书名", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(theme.currentTheme.primaryText)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(theme.currentTheme.border.opacity(0.4))
+            .cornerRadius(6)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+
             Divider()
                 .background(theme.currentTheme.border)
+                .padding(.top, 8)
 
-            TabView(selection: $selectedTab) {
-                BookListView(
-                    books: storageService.fetchBooks(),
-                    selectedBook: $selectedBook,
-                    onDelete: { storageService.deleteBook($0) },
-                    onToggleFavorite: { storageService.toggleFavorite($0) }
-                )
-                .tag(SidebarTab.all)
-
-                BookListView(
-                    books: storageService.fetchRecentBooks(),
-                    selectedBook: $selectedBook,
-                    onDelete: { storageService.deleteBook($0) },
-                    onToggleFavorite: { storageService.toggleFavorite($0) }
-                )
-                .tag(SidebarTab.recent)
-
-                BookListView(
-                    books: storageService.fetchFavoriteBooks(),
-                    selectedBook: $selectedBook,
-                    onDelete: { storageService.deleteBook($0) },
-                    onToggleFavorite: { storageService.toggleFavorite($0) }
-                )
-                .tag(SidebarTab.favorite)
-            }
+            BookListView(
+                books: filteredBooks,
+                selectedBook: $selectedBook,
+                onDelete: deleteBook,
+                onToggleFavorite: toggleFavorite
+            )
         }
         .background(theme.currentTheme.sidebarBG)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleDrop(providers: providers)
+            return true
+        }
     }
 
     @MainActor
-    private func importBook() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-
-        var types: [UTType] = []
-        if let epubType = UTType(filenameExtension: "epub") {
-            types.append(epubType)
+    private var allBooks: [Book] {
+        switch selectedTab {
+        case .all: return storageService.fetchBooks()
+        case .recent: return storageService.fetchRecentBooks()
+        case .favorite: return storageService.fetchFavoriteBooks()
         }
-        if let mobiType = UTType(filenameExtension: "mobi") {
-            types.append(mobiType)
+    }
+
+    @MainActor
+    private var filteredBooks: [Book] {
+        guard !searchText.isEmpty else { return allBooks }
+        return allBooks.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    @MainActor
+    private func deleteBook(_ book: Book) {
+        if selectedBook?.id == book.id {
+            selectedBook = nil
         }
-        if let pdfType = UTType(filenameExtension: "pdf") {
-            types.append(pdfType)
+        library.deleteBookFiles(book)
+        storageService.deleteBook(book)
+    }
+
+    @MainActor
+    private func toggleFavorite(_ book: Book) {
+        storageService.toggleFavorite(book)
+    }
+
+    private func handleDrop(providers: [NSItemProvider]) {
+        for provider in providers {
+            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                Task { @MainActor in
+                    do {
+                        _ = try library.importBook(at: url)
+                    } catch {
+                        importError = error.localizedDescription
+                    }
+                }
+            }
         }
-        panel.allowedContentTypes = types
-
-        let result = panel.runModal()
-        guard result == .OK, let url = panel.url else { return }
-
-        let ext = url.pathExtension.lowercased()
-        let fileType = FileType(rawValue: ext) ?? .epub
-        let title = url.deletingPathExtension().lastPathComponent
-
-        _ = storageService.addBook(
-            title: title,
-            filePath: url.path,
-            fileType: fileType
-        )
     }
 }

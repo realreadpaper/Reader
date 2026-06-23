@@ -8,7 +8,7 @@ final class Book {
     var author: String?
     var coverPath: String?
     var filePath: String
-    var fileTypeRaw: String = FileType.epub.rawValue
+    var fileType: FileType
     var lastRead: Date?
     var progress: Double
     var isFavorite: Bool
@@ -19,11 +19,6 @@ final class Book {
 
     @Relationship(deleteRule: .cascade, inverse: \Highlight.book)
     var highlights: [Highlight]
-
-    var fileType: FileType {
-        get { FileType(rawValue: fileTypeRaw) ?? .epub }
-        set { fileTypeRaw = newValue.rawValue }
-    }
 
     init(
         title: String,
@@ -37,7 +32,7 @@ final class Book {
         self.author = author
         self.coverPath = coverPath
         self.filePath = filePath
-        self.fileTypeRaw = fileType.rawValue
+        self.fileType = fileType
         self.lastRead = nil
         self.progress = 0.0
         self.isFavorite = false

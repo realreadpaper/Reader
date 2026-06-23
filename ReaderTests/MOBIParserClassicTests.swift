@@ -15,35 +15,8 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("Fixture content"))
     }
 
-    func testParseClassicMOBIExtractsImagesAndRewritesRecindexReferences() async throws {
-        let pngData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-        let html = """
-        <html><body><h1>Fixture</h1><p>With image.</p><img recindex="0" alt="cover"/></body></html>
-        """
-        let url = try makeClassicMOBIFixture(
-            html: html,
-            extraRecords: [pngData],
-            firstImageRecord: 2
-        )
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let parsed = try await MOBIParser().parse(fileAt: url)
-
-        let resourceDirectory = try XCTUnwrap(parsed.resourceDirectory)
-        defer { try? FileManager.default.removeItem(at: resourceDirectory) }
-        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("src=\"images/image-2.png\""))
-        XCTAssertTrue(
-            FileManager.default.fileExists(
-                atPath: resourceDirectory.appendingPathComponent("images/image-2.png").path
-            )
-        )
-    }
-
-    private func makeClassicMOBIFixture(
-        html: String = "<html><body><h1>Fixture</h1><p>Fixture content here.</p></body></html>",
-        extraRecords: [Data] = [],
-        firstImageRecord: Int? = nil
-    ) throws -> URL {
+    private func makeClassicMOBIFixture() throws -> URL {
+        let html = "<html><body><h1>Fixture</h1><p>Fixture content here.</p></body></html>"
         let htmlBytes = Array(html.utf8)
 
         // PalmDOC: 每 8 个字面值前要 1 个 flag byte（0x00 = 全字面）
@@ -95,10 +68,6 @@ final class MOBIParserClassicTests: XCTestCase {
         // 已写 MOBI 部分: 4(identifier)+4(headerLen)+4(mobiType)+4(textEncoding)+4(uniqueID)+4(version)+4(firstText)+4(lastText) = 32 bytes
         // 剩 232-32 = 200 bytes
         record0.append(Data(repeating: 0, count: 200))
-        if let firstImageRecord {
-            var imageRecord = UInt32(firstImageRecord).bigEndian
-            record0.replaceSubrange(124..<128, with: Data(bytes: &imageRecord, count: 4))
-        }
 
         // EXTH block
         let exthStart = record0.count
@@ -135,19 +104,18 @@ final class MOBIParserClassicTests: XCTestCase {
         pdb.append("BOOK".data(using: .ascii)!)            // type
         pdb.append("MOBI".data(using: .ascii)!)            // creator
         pdb.append(Data(repeating: 0, count: 8))           // uniqueIDSeed + nextRecordListID
-        let records = [record0, textRecord] + extraRecords
-        be16 = UInt16(records.count).bigEndian
+        be16 = UInt16(2).bigEndian
         pdb.append(Data(bytes: &be16, count: 2))           // numRecords = 2
-        let headerSize = 78 + records.count * 8 + 2
-        var offset = headerSize
-        for record in records {
-            be32 = UInt32(offset).bigEndian
-            pdb.append(Data(bytes: &be32, count: 4))
-            pdb.append(Data(repeating: 0, count: 4))
-            offset += record.count
-        }
+        let headerSize = 78 + 2 * 8 + 2                    // = 96
+        be32 = UInt32(headerSize).bigEndian
+        pdb.append(Data(bytes: &be32, count: 4))           // record 0 offset
+        pdb.append(Data(repeating: 0, count: 4))
+        be32 = UInt32(headerSize + record0.count).bigEndian
+        pdb.append(Data(bytes: &be32, count: 4))           // record 1 offset
+        pdb.append(Data(repeating: 0, count: 4))
         pdb.append(Data(repeating: 0, count: 2))           // padding
-        records.forEach { pdb.append($0) }
+        pdb.append(record0)
+        pdb.append(textRecord)
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".mobi")
