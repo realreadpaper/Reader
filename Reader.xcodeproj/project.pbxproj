@@ -39,6 +39,8 @@
 		8123E8BF005C8D3528E95DBD /* EPUBParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A620BE5B107B71A683D37D6E /* EPUBParser.swift */; };
 		88FE5F39461D7AC15CE20364 /* TopBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A065C3D2016DA183930297D /* TopBarView.swift */; };
 		8D49EC3CBFB87D4232EE36EA /* MOBIHeaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8249092EA5E6182EE7CD6363 /* MOBIHeaderTests.swift */; };
+		8F89A1C463134C80A7EF7F01 /* MOBIContainerInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F89A1C363134C80A7EF7F01 /* MOBIContainerInspector.swift */; };
+		91B6F2C7A4D5480B8E3F1C2D /* MOBIContainerInspectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91B6F2C6A4D5480B8E3F1C2D /* MOBIContainerInspectorTests.swift */; };
 		939ED04F36963FB7F3B48A03 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1A59C8116DE0176BFAA9C288 /* Assets.xcassets */; };
 		94D4C0C30FC60AF3268B57C6 /* BookRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7430B611700E533ED8139530 /* BookRowView.swift */; };
 		9520EE1B997FE5CB865599F9 /* TOCView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00DE9FDA8385CD4F5791F59F /* TOCView.swift */; };
@@ -111,6 +113,8 @@
 		7E103CF815E06F398BD890E8 /* PalmDBReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PalmDBReader.swift; sourceTree = "<group>"; };
 		8249092EA5E6182EE7CD6363 /* MOBIHeaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIHeaderTests.swift; sourceTree = "<group>"; };
 		88EC68083FF6F0F474524204 /* BottomBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomBarView.swift; sourceTree = "<group>"; };
+		8F89A1C363134C80A7EF7F01 /* MOBIContainerInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIContainerInspector.swift; sourceTree = "<group>"; };
+		91B6F2C6A4D5480B8E3F1C2D /* MOBIContainerInspectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIContainerInspectorTests.swift; sourceTree = "<group>"; };
 		9337F739D0B41332D5F605B3 /* Highlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Highlight.swift; sourceTree = "<group>"; };
 		99E2F514D1D62A6C752916AC /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		9A065C3D2016DA183930297D /* TopBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopBarView.swift; sourceTree = "<group>"; };
@@ -195,6 +199,7 @@
 				57D187DF0961D564E88FEF3D /* MDParser.swift */,
 				60D918080FC8F427BF61C2A2 /* MOBIDecompressor.swift */,
 				E3DD150305FF2037F36EAEA1 /* MOBIHeader.swift */,
+				8F89A1C363134C80A7EF7F01 /* MOBIContainerInspector.swift */,
 				C6AE8E0179E2EBE6EAB2DA29 /* MOBIParser.swift */,
 				7E103CF815E06F398BD890E8 /* PalmDBReader.swift */,
 				5618AF8A636FC27AA2863635 /* PDFParser.swift */,
@@ -267,6 +272,7 @@
 				2A6965D43F2A729AB15D3745 /* CalibreFallbackTests.swift */,
 				295D5441EF0BFF2BF2155893 /* EPUBParserMigrationTests.swift */,
 				49B6016966AE1BD3B8E6AF53 /* KF8IndexReaderTests.swift */,
+				91B6F2C6A4D5480B8E3F1C2D /* MOBIContainerInspectorTests.swift */,
 				D0377560638F3CB4F0D4C3EE /* MOBIDecompressorTests.swift */,
 				8249092EA5E6182EE7CD6363 /* MOBIHeaderTests.swift */,
 				D5561349CE23916F42822584 /* MOBIParserClassicTests.swift */,
@@ -456,6 +462,7 @@
 				1C4A774472B74143A1D30D52 /* MOBIConverter.swift in Sources */,
 				CE41B12059740A73BF2D536F /* MOBIDecompressor.swift in Sources */,
 				C8B37E9F15CDB7EF9057053A /* MOBIHeader.swift in Sources */,
+				8F89A1C463134C80A7EF7F01 /* MOBIContainerInspector.swift in Sources */,
 				ADC0B0D1034C24C02E032C26 /* MOBIParser.swift in Sources */,
 				1C8C9557F17AF06AB5CBABAD /* PDFContainerView.swift in Sources */,
 				BDF6467E163EEAECC30DB26C /* PDFParser.swift in Sources */,
@@ -484,6 +491,7 @@
 				1E0BE65E7587035D1BA07B47 /* CalibreFallbackTests.swift in Sources */,
 				C09575649D83BD307DA67AB7 /* EPUBParserMigrationTests.swift in Sources */,
 				EDAEC5DBF69136742BE05C95 /* KF8IndexReaderTests.swift in Sources */,
+				91B6F2C7A4D5480B8E3F1C2D /* MOBIContainerInspectorTests.swift in Sources */,
 				A9F99D3BE93CFE96B27676B6 /* MOBIDecompressorTests.swift in Sources */,
 				8D49EC3CBFB87D4232EE36EA /* MOBIHeaderTests.swift in Sources */,
 				352DD20E798D4FED2DB809ED /* MOBIParserClassicTests.swift in Sources */,
