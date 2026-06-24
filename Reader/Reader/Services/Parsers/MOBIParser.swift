@@ -456,6 +456,14 @@ final class MOBIParser: BookParser {
     }
 
     func parseKF8(pdb: PalmDatabase, header: MOBIHeader, sourceURL: URL) throws -> ParsedBook {
+        do {
+            let reconstructed = try KF8Reconstructor(pdb: pdb, header: header, sourceURL: sourceURL).reconstruct()
+            BookLog.mobi.info("parseKF8: native rawML reconstructed chapters=\(reconstructed.chapters.count)")
+            return reconstructed
+        } catch {
+            BookLog.mobi.notice("parseKF8: native rawML reconstruction failed, trying legacy ZIP scan: \(error.localizedDescription, privacy: .public)")
+        }
+
         guard let kf8Data = extractKF8Data(from: pdb) else {
             BookLog.mobi.error("parseKF8: cannot extract KF8 ZIP data from \(pdb.records.count) records")
             throw BookParseError.corruptedFile(detail: "无法提取 KF8 ZIP 数据")
