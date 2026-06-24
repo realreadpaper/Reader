@@ -108,7 +108,9 @@ final class MOBIParser: BookParser {
             BookLog.mobi.info("parseClassic: html length=\(html.count) prefix=\(String(html.prefix(80)), privacy: .public)")
         }
 
-        let pieces = splitChapters(in: html)
+        let resourceMap = try writeImageResources(from: pdb, header: header, bookID: UUID().uuidString)
+        let mappedHTML = rewriteResourceReferences(in: html, resourcePaths: resourceMap.pathsByRecordIndex, firstImageRecord: header.firstImageRecord)
+        let pieces = splitChapters(in: mappedHTML)
         BookLog.mobi.info("parseClassic: split into \(pieces.count) chapter pieces")
         let chapters: [ParsedChapter] = pieces.enumerated().map { idx, piece in
             ParsedChapter(
@@ -118,7 +120,6 @@ final class MOBIParser: BookParser {
             )
         }
 
-        let resourceDir = try? writeImageResources(from: pdb, header: header, bookID: UUID().uuidString)
         let cover = coverImage(from: pdb, header: header)
 
         let toc = chapters.enumerated().map { idx, ch in
@@ -131,7 +132,7 @@ final class MOBIParser: BookParser {
             coverImage: cover,
             chapters: chapters,
             toc: toc,
-            resourceDirectory: resourceDir,
+            resourceDirectory: resourceMap.directory,
             renderer: .html,
             pdfDocument: nil
         )
@@ -336,24 +337,59 @@ final class MOBIParser: BookParser {
         return nil
     }
 
-    private func writeImageResources(from pdb: PalmDatabase, header: MOBIHeader, bookID: String) throws -> URL? {
-        guard let firstImage = header.firstImageRecord else { return nil }
+    private struct MOBIResourceMap {
+        let directory: URL?
+        let pathsByRecordIndex: [Int: String]
+    }
+
+    private func writeImageResources(from pdb: PalmDatabase, header: MOBIHeader, bookID: String) throws -> MOBIResourceMap {
+        guard let firstImage = header.firstImageRecord else {
+            return MOBIResourceMap(directory: nil, pathsByRecordIndex: [:])
+        }
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ReaderMOBI", isDirectory: true)
             .appendingPathComponent(bookID, isDirectory: true)
         let imagesDir = dir.appendingPathComponent("images", isDirectory: true)
         try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
 
-        var imageIndex = 0
+        var pathsByRecordIndex: [Int: String] = [:]
         for i in firstImage..<pdb.records.count where i < pdb.records.count {
             let data = pdb.records[i]
             if isImage(data) {
                 let ext = imageExtension(for: data) ?? "img"
-                try data.write(to: imagesDir.appendingPathComponent("image-\(imageIndex).\(ext)"))
-                imageIndex += 1
+                let relativePath = "images/record-\(i).\(ext)"
+                try data.write(to: dir.appendingPathComponent(relativePath))
+                pathsByRecordIndex[i] = relativePath
             }
         }
-        return imageIndex > 0 ? dir : nil
+        return MOBIResourceMap(directory: pathsByRecordIndex.isEmpty ? nil : dir, pathsByRecordIndex: pathsByRecordIndex)
+    }
+
+    private func rewriteResourceReferences(
+        in html: String,
+        resourcePaths: [Int: String],
+        firstImageRecord: Int?
+    ) -> String {
+        guard !resourcePaths.isEmpty, let firstImageRecord else { return html }
+        var result = html
+
+        let maxOffset = max(0, (resourcePaths.keys.max() ?? firstImageRecord) - firstImageRecord)
+        for offset in 0...maxOffset {
+            let recordIndex = firstImageRecord + offset
+            guard let path = resourcePaths[recordIndex] else { continue }
+            result = result.replacingOccurrences(
+                of: "recindex:\\s*0*\(offset)",
+                with: path,
+                options: .regularExpression
+            )
+            result = result.replacingOccurrences(
+                of: "kindle:embed:\\s*0*\(offset)",
+                with: path,
+                options: .regularExpression
+            )
+        }
+
+        return result
     }
 
     private func isImage(_ data: Data) -> Bool {

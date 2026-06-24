@@ -87,6 +87,23 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("TRAILING-NOISE"))
     }
 
+    func testParseClassicMOBIRewritesRecindexImagesToResourceFiles() async throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00])
+        let html = """
+        <html><body><h1>Illustrated</h1><p><img src="recindex:00000"/></p></body></html>
+        """
+        let url = try makeClassicMOBIFixture(html: html, resourceRecords: [png])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+
+        let resourceDirectory = try XCTUnwrap(parsed.resourceDirectory)
+        let imageURL = resourceDirectory.appendingPathComponent("images/record-2.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imageURL.path))
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("images/record-2.png"))
+        XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("recindex:"))
+    }
+
     func testDecodeHTMLUsesLossyUTF8ForDeclaredUTF8() {
         var raw = Data("<p>逻辑".utf8)
         raw.append(0x91)
@@ -102,19 +119,22 @@ final class MOBIParserClassicTests: XCTestCase {
     private func makeClassicMOBIFixture(
         html: String,
         extraDataFlags: UInt32 = 0,
-        trailingTextRecordData: Data = Data()
+        trailingTextRecordData: Data = Data(),
+        resourceRecords: [Data] = []
     ) throws -> URL {
         try makeClassicMOBIFixture(
             htmlChunks: [html],
             extraDataFlags: extraDataFlags,
-            trailingTextRecordData: [trailingTextRecordData]
+            trailingTextRecordData: [trailingTextRecordData],
+            resourceRecords: resourceRecords
         )
     }
 
     private func makeClassicMOBIFixture(
         htmlChunks: [String],
         extraDataFlags: UInt32 = 0,
-        trailingTextRecordData: [Data] = []
+        trailingTextRecordData: [Data] = [],
+        resourceRecords: [Data] = []
     ) throws -> URL {
         let htmlData = Data(htmlChunks.joined().utf8)
         let textRecords = htmlChunks.enumerated().map { idx, chunk in
@@ -163,6 +183,10 @@ final class MOBIParserClassicTests: XCTestCase {
             be32 = extraDataFlags.bigEndian
             record0.replaceSubrange(240..<244, with: Data(bytes: &be32, count: 4))
         }
+        if !resourceRecords.isEmpty {
+            be32 = UInt32(1 + textRecords.count).bigEndian
+            record0.replaceSubrange(124..<128, with: Data(bytes: &be32, count: 4))
+        }
 
         // EXTH block
         let exthStart = record0.count
@@ -199,7 +223,7 @@ final class MOBIParserClassicTests: XCTestCase {
         pdb.append("BOOK".data(using: .ascii)!)            // type
         pdb.append("MOBI".data(using: .ascii)!)            // creator
         pdb.append(Data(repeating: 0, count: 8))           // uniqueIDSeed + nextRecordListID
-        let allRecords = [record0] + textRecords
+        let allRecords = [record0] + textRecords + resourceRecords
         be16 = UInt16(allRecords.count).bigEndian
         pdb.append(Data(bytes: &be16, count: 2))           // numRecords
         let headerSize = 78 + allRecords.count * 8 + 2
