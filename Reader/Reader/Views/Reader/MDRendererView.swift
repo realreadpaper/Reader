@@ -9,51 +9,97 @@ struct MDRendererView: View {
     let themeManager: ThemeManager
     let storageService: StorageService
 
-    @State private var selectedTab: MDTab = .edit
+    @State private var layoutMode: MDLayoutMode = .split
     @State private var editedContent: String = ""
     @State private var originalContent: String = ""
     @State private var hasUnsavedChanges = false
+    @State private var splitRatio: CGFloat = 0.5
 
-    enum MDTab: String, CaseIterable {
-        case edit = "编辑"
-        case preview = "预览"
+    enum MDLayoutMode: String, CaseIterable {
+        case split = "分栏"
+        case editOnly = "纯编辑"
+        case previewOnly = "纯预览"
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab 栏
-            HStack(spacing: 0) {
-                ForEach(MDTab.allCases, id: \.self) { tab in
-                    Button(action: { selectedTab = tab }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: tab == .edit ? "pencil" : "eye")
-                            Text(tab.rawValue)
+            // 工具栏
+            HStack(spacing: 8) {
+                // 布局切换
+                HStack(spacing: 2) {
+                    ForEach(MDLayoutMode.allCases, id: \.self) { mode in
+                        Button(action: { layoutMode = mode }) {
+                            Image(systemName: layoutIcon(for: mode))
+                                .font(.system(size: 12))
+                                .frame(width: 28, height: 24)
+                                .background(
+                                    layoutMode == mode
+                                        ? themeManager.currentTheme.accent
+                                        : Color.clear
+                                )
+                                .foregroundStyle(
+                                    layoutMode == mode
+                                        ? .white
+                                        : themeManager.currentTheme.secondaryText
+                                )
                         }
-                        .font(.subheadline)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            selectedTab == tab
-                                ? themeManager.currentTheme.accent
-                                : Color.clear
-                        )
-                        .foregroundStyle(
-                            selectedTab == tab
-                                ? .white
-                                : themeManager.currentTheme.secondaryText
-                        )
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(2)
+                .background(themeManager.currentTheme.border.opacity(0.5))
+                .cornerRadius(6)
+
+                Divider()
+                    .frame(height: 16)
+
+                // 文件信息
+                Text(chapters[safe: currentChapter]?.title ?? book.title)
+                    .font(.caption)
+                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+                    .lineLimit(1)
+
+                Spacer()
+
+                // 字数统计
+                Text("\(editedContent.count) 字")
+                    .font(.caption2)
+                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+
+                // 保存按钮
+                if hasUnsavedChanges {
+                    Button(action: saveChanges) {
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(Color.orange)
+                                .frame(width: 6, height: 6)
+                            Text("未保存")
+                        }
+                        .font(.caption2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(themeManager.currentTheme.border)
+                        .cornerRadius(4)
                     }
                     .buttonStyle(.plain)
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .background(themeManager.currentTheme.sidebarBG)
             .overlay(alignment: .bottom) {
                 Divider().background(themeManager.currentTheme.border)
             }
 
             // 内容区
-            if selectedTab == .edit {
+            switch layoutMode {
+            case .split:
+                SplitView(
+                    content: $editedContent,
+                    theme: themeManager.currentTheme,
+                    splitRatio: $splitRatio
+                )
+            case .editOnly:
                 MDEditorView(
                     content: $editedContent,
                     hasChanges: $hasUnsavedChanges,
@@ -62,19 +108,15 @@ struct MDRendererView: View {
                 .onChange(of: editedContent) { _, _ in
                     hasUnsavedChanges = (editedContent != originalContent)
                 }
-            } else {
+            case .previewOnly:
                 MDPreviewView(
                     content: editedContent,
                     theme: themeManager.currentTheme
                 )
             }
         }
-        .onAppear {
-            loadContent()
-        }
-        .onChange(of: currentChapter) { _, _ in
-            loadContent()
-        }
+        .onAppear { loadContent() }
+        .onChange(of: currentChapter) { _, _ in loadContent() }
     }
 
     private func loadContent() {
@@ -84,7 +126,47 @@ struct MDRendererView: View {
         editedContent = chapter.htmlContent
         hasUnsavedChanges = false
     }
+
+    private func saveChanges() {
+        hasUnsavedChanges = false
+        originalContent = editedContent
+    }
+
+    private func layoutIcon(for mode: MDLayoutMode) -> String {
+        switch mode {
+        case .split: return "rectangle.split.2x1"
+        case .editOnly: return "doc.text"
+        case .previewOnly: return "eye"
+        }
+    }
 }
+
+// MARK: - 分栏视图
+
+struct SplitView: View {
+    @Binding var content: String
+    let theme: AppTheme
+    @Binding var splitRatio: CGFloat
+
+    var body: some View {
+        HSplitView {
+            MDEditorView(
+                content: $content,
+                hasChanges: .constant(false),
+                theme: theme
+            )
+            .frame(minWidth: 200)
+
+            MDPreviewView(
+                content: content,
+                theme: theme
+            )
+            .frame(minWidth: 200)
+        }
+    }
+}
+
+// MARK: - 编辑器
 
 struct MDEditorView: NSViewRepresentable {
     @Binding var content: String
@@ -156,15 +238,9 @@ struct MDEditorView: NSViewRepresentable {
 
 class MarkdownTextView: NSTextView {
     override var acceptsFirstResponder: Bool { true }
-
-    override func keyDown(with event: NSEvent) {
-        super.keyDown(with: event)
-    }
-
-    override func paste(_ sender: Any?) {
-        super.paste(sender)
-    }
 }
+
+// MARK: - 预览器
 
 struct MDPreviewView: NSViewRepresentable {
     let content: String
@@ -271,5 +347,13 @@ struct MDPreviewView: NSViewRepresentable {
         <body>\(body)</body>
         </html>
         """
+    }
+}
+
+// MARK: - Array Safe Extension
+
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
