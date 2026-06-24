@@ -56,6 +56,18 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertEqual(parsed.toc.last?.title, "第 \(parsed.chapters.count) 页")
     }
 
+    func testParseClassicMOBIStillWorksWithContainerDiagnosticsEnabled() async throws {
+        let html = "<html><body><h1>Diagnostics</h1><p>Parser behavior is unchanged.</p></body></html>"
+        let url = try makeClassicMOBIFixture(html: html)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+
+        XCTAssertEqual(parsed.renderer, .html)
+        XCTAssertEqual(parsed.title, "Fixture Title")
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("Parser behavior is unchanged."))
+    }
+
     func testDecodeHTMLUsesLossyUTF8ForDeclaredUTF8() {
         var raw = Data("<p>逻辑".utf8)
         raw.append(0x91)

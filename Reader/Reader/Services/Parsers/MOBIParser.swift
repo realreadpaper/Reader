@@ -39,6 +39,9 @@ final class MOBIParser: BookParser {
         guard pdb.records.first != nil else {
             throw BookParseError.corruptedFile(detail: "无 record0")
         }
+        if let info = try? MOBIContainerInspector.inspect(pdb: pdb) {
+            BookLog.mobi.info("parseNative: container \(info.diagnosticSummary, privacy: .public)")
+        }
         let header = try MOBIHeader.read(pdb: pdb)
         BookLog.mobi.info("parseNative: header variant=\(String(describing: header.variant), privacy: .public) compression=\(String(describing: header.compression), privacy: .public) textRange=\(header.firstTextRecord)-\(header.lastTextRecord) firstImage=\(header.firstImageRecord.map(String.init) ?? "nil", privacy: .public) title=\(header.title, privacy: .public)")
 
