@@ -113,8 +113,9 @@ final class MOBIParser: BookParser {
         let pieces = splitChapters(in: mappedHTML)
         BookLog.mobi.info("parseClassic: split into \(pieces.count) chapter pieces")
         let chapters: [ParsedChapter] = pieces.enumerated().map { idx, piece in
-            ParsedChapter(
-                title: "第 \(idx + 1) 页",
+            let title = extractTitle(from: piece) ?? "第 \(idx + 1) 页"
+            return ParsedChapter(
+                title: title,
                 bodyHTML: piece,
                 sourcePath: "classic-mobi-fragment-\(idx)"
             )
@@ -323,18 +324,50 @@ final class MOBIParser: BookParser {
         if let range = html.range(of: "<h1[^>]*>(.*?)</h1>", options: .regularExpression) {
             let inner = String(html[range])
             if let openClose = inner.range(of: ">"), let close = inner.range(of: "</h1>") {
-                return String(inner[openClose.upperBound..<close.lowerBound])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return cleanHTMLText(String(inner[openClose.upperBound..<close.lowerBound]))
             }
         }
-        if let range = html.range(of: "<title>(.*?)</title>", options: .regularExpression) {
+        if let range = html.range(of: "<h2[^>]*>(.*?)</h2>", options: .regularExpression) {
             let inner = String(html[range])
-            if let open = inner.range(of: "<title>"), let close = inner.range(of: "</title>") {
-                return String(inner[open.upperBound..<close.lowerBound])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let openClose = inner.range(of: ">"), let close = inner.range(of: "</h2>") {
+                return cleanHTMLText(String(inner[openClose.upperBound..<close.lowerBound]))
+            }
+        }
+        if let range = html.range(of: "<h3[^>]*>(.*?)</h3>", options: .regularExpression) {
+            let inner = String(html[range])
+            if let openClose = inner.range(of: ">"), let close = inner.range(of: "</h3>") {
+                return cleanHTMLText(String(inner[openClose.upperBound..<close.lowerBound]))
+            }
+        }
+        if let range = html.range(of: "<a\\s+[^>]*(?:name|id)=[\"'][^\"']+[\"'][^>]*>\\s*([^<]+)\\s*</a>", options: .regularExpression) {
+            let inner = String(html[range])
+            if let openClose = inner.range(of: ">"), let close = inner.range(of: "</a>") {
+                return cleanHTMLText(String(inner[openClose.upperBound..<close.lowerBound]))
+            }
+        }
+        if let range = html.range(of: "<title[^>]*>(.*?)</title>", options: .regularExpression) {
+            let inner = String(html[range])
+            if let open = inner.range(of: ">"), let close = inner.range(of: "</title>") {
+                return cleanHTMLText(String(inner[open.upperBound..<close.lowerBound]))
             }
         }
         return nil
+    }
+
+    private func cleanHTMLText(_ html: String) -> String? {
+        let withoutTags = html.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        )
+        let cleaned = withoutTags
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
     }
 
     private struct MOBIResourceMap {

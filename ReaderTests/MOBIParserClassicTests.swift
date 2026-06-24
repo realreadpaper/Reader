@@ -104,6 +104,23 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("recindex:"))
     }
 
+    func testParseClassicMOBIDerivesChapterTitlesAndTOCFromHeadings() async throws {
+        let html = """
+        <html><body>
+        <h1 id="intro">引言</h1><p>第一章正文。</p>
+        <h1 id="logic">逻辑学基础</h1><p>第二章正文。</p>
+        </body></html>
+        """
+        let url = try makeClassicMOBIFixture(html: html)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+
+        XCTAssertEqual(parsed.chapters.map(\.title), ["引言", "逻辑学基础"])
+        XCTAssertEqual(parsed.toc.map(\.title), ["引言", "逻辑学基础"])
+        XCTAssertEqual(parsed.toc.map(\.chapterIndex), [0, 1])
+    }
+
     func testDecodeHTMLUsesLossyUTF8ForDeclaredUTF8() {
         var raw = Data("<p>逻辑".utf8)
         raw.append(0x91)
