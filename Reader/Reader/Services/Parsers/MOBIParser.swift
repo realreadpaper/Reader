@@ -549,7 +549,7 @@ final class MOBIParser: BookParser {
 
     /// 解码 MOBI 文本记录。MOBI 文件实际编码不一定与 header 声明一致：
     /// 很多中文 MOBI 声明 1252 (Western) 但内容是 GBK/GB18030。
-    /// 策略：UTF-8（严格）→ 头声明的编码 → GB18030 → Big5 → Latin1 兜底
+    /// 策略：UTF-8（严格）→ 少量坏字节按 CP1252 修复 → 头声明的非 UTF-8 编码 → GB18030 → Big5 → UTF-8 lossy → Latin1 兜底
     static func decodeHTML(_ raw: Data, declaredEncoding: String.Encoding?) -> String {
         decodeHTMLWithDiagnostic(raw, declaredEncoding: declaredEncoding).html
     }
@@ -580,15 +580,16 @@ final class MOBIParser: BookParser {
             )
         }
         if declaredEncoding == .utf8 {
-            let s = String(decoding: raw, as: UTF8.self)
-            return HTMLDecodeDiagnostic(
-                html: s,
-                method: "utf8-lossy",
-                declaredEncoding: declaredName,
-                rawByteCount: raw.count,
-                replacementCharacterCount: replacementCount(in: s),
-                sample: diagnosticSample(from: s)
-            )
+            if let repaired = repairInvalidUTF8HTMLBytesWithWindowsCP1252(raw) {
+                return HTMLDecodeDiagnostic(
+                    html: repaired,
+                    method: "utf8-html-repair-windowsCP1252",
+                    declaredEncoding: declaredName,
+                    rawByteCount: raw.count,
+                    replacementCharacterCount: replacementCount(in: repaired),
+                    sample: diagnosticSample(from: repaired)
+                )
+            }
         }
         if let enc = declaredEncoding, enc != .utf8, let s = String(data: raw, encoding: enc) {
             return HTMLDecodeDiagnostic(
@@ -621,6 +622,17 @@ final class MOBIParser: BookParser {
                 sample: diagnosticSample(from: s)
             )
         }
+        if declaredEncoding == .utf8 {
+            let s = String(decoding: raw, as: UTF8.self)
+            return HTMLDecodeDiagnostic(
+                html: s,
+                method: "utf8-lossy",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: replacementCount(in: s),
+                sample: diagnosticSample(from: s)
+            )
+        }
         let s = String(data: raw, encoding: .isoLatin1) ?? ""
         return HTMLDecodeDiagnostic(
             html: s,
@@ -630,6 +642,90 @@ final class MOBIParser: BookParser {
             replacementCharacterCount: replacementCount(in: s),
             sample: diagnosticSample(from: s)
         )
+    }
+
+    private static func repairInvalidUTF8HTMLBytesWithWindowsCP1252(_ raw: Data) -> String? {
+        let bytes = [UInt8](raw)
+        guard !bytes.isEmpty else { return nil }
+
+        var html = ""
+        html.reserveCapacity(raw.count)
+        var repairedByteCount = 0
+        var segmentStart = 0
+        var index = 0
+
+        while index < bytes.count {
+            if let length = validUTF8SequenceLength(in: bytes, at: index) {
+                index += length
+                continue
+            }
+
+            if segmentStart < index {
+                html.append(String(decoding: bytes[segmentStart..<index], as: UTF8.self))
+            }
+            guard let repaired = String(data: Data([bytes[index]]), encoding: .windowsCP1252) else {
+                return nil
+            }
+            html.append(repaired)
+            repairedByteCount += 1
+            index += 1
+            segmentStart = index
+        }
+
+        guard repairedByteCount > 0 else { return nil }
+        if segmentStart < bytes.count {
+            html.append(String(decoding: bytes[segmentStart..<bytes.count], as: UTF8.self))
+        }
+
+        let maxRepairableBytes = max(1, raw.count / 20)
+        guard repairedByteCount <= maxRepairableBytes else { return nil }
+        return html
+    }
+
+    private static func validUTF8SequenceLength(in bytes: [UInt8], at index: Int) -> Int? {
+        let byte = bytes[index]
+        if byte <= 0x7F { return 1 }
+
+        func hasContinuation(_ offset: Int) -> Bool {
+            let nextIndex = index + offset
+            guard nextIndex < bytes.count else { return false }
+            return (bytes[nextIndex] & 0xC0) == 0x80
+        }
+
+        if (0xC2...0xDF).contains(byte) {
+            return hasContinuation(1) ? 2 : nil
+        }
+        if byte == 0xE0 {
+            guard index + 2 < bytes.count, (0xA0...0xBF).contains(bytes[index + 1]), hasContinuation(2) else {
+                return nil
+            }
+            return 3
+        }
+        if (0xE1...0xEC).contains(byte) || (0xEE...0xEF).contains(byte) {
+            return hasContinuation(1) && hasContinuation(2) ? 3 : nil
+        }
+        if byte == 0xED {
+            guard index + 2 < bytes.count, (0x80...0x9F).contains(bytes[index + 1]), hasContinuation(2) else {
+                return nil
+            }
+            return 3
+        }
+        if byte == 0xF0 {
+            guard index + 3 < bytes.count, (0x90...0xBF).contains(bytes[index + 1]), hasContinuation(2), hasContinuation(3) else {
+                return nil
+            }
+            return 4
+        }
+        if (0xF1...0xF3).contains(byte) {
+            return hasContinuation(1) && hasContinuation(2) && hasContinuation(3) ? 4 : nil
+        }
+        if byte == 0xF4 {
+            guard index + 3 < bytes.count, (0x80...0x8F).contains(bytes[index + 1]), hasContinuation(2), hasContinuation(3) else {
+                return nil
+            }
+            return 4
+        }
+        return nil
     }
 
     private static func encodingName(_ encoding: String.Encoding?) -> String {

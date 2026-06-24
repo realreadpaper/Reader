@@ -121,7 +121,7 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertEqual(parsed.toc.map(\.chapterIndex), [0, 1])
     }
 
-    func testDecodeHTMLUsesLossyUTF8ForDeclaredUTF8() {
+    func testDecodeHTMLRepairsCP1252PunctuationInsideDeclaredUTF8HTML() {
         var raw = Data("<p>逻辑".utf8)
         raw.append(0x91)
         raw.append(Data("发现</p>".utf8))
@@ -129,22 +129,36 @@ final class MOBIParserClassicTests: XCTestCase {
         let html = MOBIParser.decodeHTML(raw, declaredEncoding: .utf8)
 
         XCTAssertTrue(html.contains("逻辑"))
+        XCTAssertTrue(html.contains("‘"))
         XCTAssertTrue(html.contains("发现"))
         XCTAssertFalse(html.contains("é»"))
+        XCTAssertFalse(html.contains("�"))
     }
 
-    func testDecodeHTMLDiagnosticReportsSelectedStrategyAndReplacementCount() {
+    func testDecodeHTMLDiagnosticRepairsInvalidWindows1252ByteInsideUTF8HTML() {
         var raw = Data("<p>一个".utf8)
-        raw.append(0x91)
+        raw.append(0x97)
         raw.append(Data("小时</p>".utf8))
 
         let diagnostic = MOBIParser.decodeHTMLWithDiagnostic(raw, declaredEncoding: .utf8)
 
-        XCTAssertEqual(diagnostic.method, "utf8-lossy")
-        XCTAssertEqual(diagnostic.replacementCharacterCount, 1)
-        XCTAssertTrue(diagnostic.html.contains("�"))
-        XCTAssertTrue(diagnostic.summary.contains("method=utf8-lossy"))
-        XCTAssertTrue(diagnostic.summary.contains("replacementChars=1"))
+        XCTAssertEqual(diagnostic.method, "utf8-html-repair-windowsCP1252")
+        XCTAssertEqual(diagnostic.replacementCharacterCount, 0)
+        XCTAssertTrue(diagnostic.html.contains("一个—小时"))
+        XCTAssertFalse(diagnostic.html.contains("�"))
+        XCTAssertTrue(diagnostic.summary.contains("method=utf8-html-repair-windowsCP1252"))
+        XCTAssertTrue(diagnostic.summary.contains("replacementChars=0"))
+    }
+
+    func testDecodeHTMLFallsBackToGB18030WhenDeclaredUTF8HasTooManyInvalidBytes() throws {
+        let raw = try XCTUnwrap("<html><body><p>逻辑是一门独立的学问。</p></body></html>".data(using: .gb18030))
+
+        let diagnostic = MOBIParser.decodeHTMLWithDiagnostic(raw, declaredEncoding: .utf8)
+
+        XCTAssertEqual(diagnostic.method, "gb18030")
+        XCTAssertEqual(diagnostic.replacementCharacterCount, 0)
+        XCTAssertTrue(diagnostic.html.contains("逻辑是一门独立的学问"))
+        XCTAssertFalse(diagnostic.html.contains("�"))
     }
 
     private func makeClassicMOBIFixture(
