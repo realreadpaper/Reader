@@ -5,6 +5,7 @@ import SwiftData
 @Observable
 final class StorageService {
     private let modelContext: ModelContext
+    var libraryRevision: Int = 0
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -22,6 +23,7 @@ final class StorageService {
         )
         modelContext.insert(book)
         save()
+        markLibraryChanged()
         return book
     }
 
@@ -50,22 +52,31 @@ final class StorageService {
     func updateBook(_ book: Book) {
         book.lastRead = Date()
         save()
+        markLibraryChanged()
+    }
+
+    func stageProgress(_ book: Book, progress: Double) {
+        book.progress = max(0, min(1, progress))
+        markLibraryChanged()
     }
 
     func updateProgress(_ book: Book, progress: Double) {
         book.progress = max(0, min(1, progress))
         book.lastRead = Date()
         save()
+        markLibraryChanged()
     }
 
     func toggleFavorite(_ book: Book) {
         book.isFavorite.toggle()
         save()
+        markLibraryChanged()
     }
 
     func deleteBook(_ book: Book) {
         modelContext.delete(book)
         save()
+        markLibraryChanged()
     }
 
     // MARK: - Bookmark CRUD
@@ -74,6 +85,7 @@ final class StorageService {
         let bookmark = Bookmark(book: book, position: position, chapter: chapter)
         modelContext.insert(bookmark)
         save()
+        markLibraryChanged()
         return bookmark
     }
 
@@ -90,6 +102,21 @@ final class StorageService {
     func deleteBookmark(_ bookmark: Bookmark) {
         modelContext.delete(bookmark)
         save()
+        markLibraryChanged()
+    }
+
+    func findBookmark(for book: Book, at position: String) -> Bookmark? {
+        fetchBookmarks(for: book).first { $0.position == position }
+    }
+
+    func toggleBookmark(for book: Book, position: String, chapter: String? = nil) -> Bool {
+        if let existing = findBookmark(for: book, at: position) {
+            deleteBookmark(existing)
+            return false
+        } else {
+            _ = addBookmark(to: book, position: position, chapter: chapter)
+            return true
+        }
     }
 
     // MARK: - Highlight CRUD
@@ -112,6 +139,7 @@ final class StorageService {
         )
         modelContext.insert(highlight)
         save()
+        markLibraryChanged()
         return highlight
     }
 
@@ -128,14 +156,20 @@ final class StorageService {
     func updateHighlight(_ highlight: Highlight, note: String?) {
         highlight.note = note
         save()
+        markLibraryChanged()
     }
 
     func deleteHighlight(_ highlight: Highlight) {
         modelContext.delete(highlight)
         save()
+        markLibraryChanged()
     }
 
     // MARK: - Private
+
+    private func markLibraryChanged() {
+        libraryRevision &+= 1
+    }
 
     private func save() {
         do {

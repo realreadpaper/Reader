@@ -39,7 +39,7 @@ struct ReaderView: View {
                     onSearchToggle: { coordinator.showSearch.toggle() },
                     onFontToggle: { coordinator.showFontPanel.toggle() },
                     onAnnotationsToggle: { coordinator.showAnnotations.toggle() },
-                    onBookmarkAdded: { annotationRefreshToken = UUID() }
+                    onBookmarkChanged: { annotationRefreshToken = UUID() }
                 )
 
                 HStack(spacing: 0) {
@@ -150,6 +150,9 @@ struct ReaderView: View {
             storageService.updateBook(book)
             postRestoreHighlights()
         }
+        .onDisappear {
+            coordinator.flushProgressSave()
+        }
         .alert("无法打开", isPresented: Binding(
             get: { coordinator.loadError != nil },
             set: { if !$0 { coordinator.loadError = nil } }
@@ -212,6 +215,7 @@ struct ReaderView: View {
                     progress: $coordinator.progress,
                     themeManager: themeManager,
                     settings: settings,
+                    onProgress: { coordinator.updateScrollableProgress($0) },
                     onSelection: { text, rect in
                         handleSelection(text: text, rect: rect)
                     },
@@ -231,6 +235,7 @@ struct ReaderView: View {
                     themeManager: themeManager,
                     storageService: storageService,
                     settings: settings,
+                    onProgress: { coordinator.updateScrollableProgress($0) },
                     onSelection: { text, rect in
                         handleSelection(text: text, rect: rect)
                     },

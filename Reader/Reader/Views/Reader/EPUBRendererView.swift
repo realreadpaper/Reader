@@ -559,6 +559,10 @@ enum EPUBScripts {
       --reader-fg: #1A1208;
       --reader-font-size: 16px;
       --reader-line-height: 2.10;
+      --reader-page-margin-y: clamp(24px, 5vh, 40px);
+      --reader-page-padding-x: clamp(22px, 6vw, 56px);
+      --reader-column-gap: calc(var(--reader-page-padding-x) + var(--reader-page-padding-x));
+      --reader-page-width: calc(100vw - var(--reader-page-padding-x) - var(--reader-page-padding-x));
     }
     html, body {
       width: 100%;
@@ -591,17 +595,17 @@ enum EPUBScripts {
     }
     #reader-book {
       box-sizing: border-box;
-      height: calc(100vh - 80px);
-      margin: 40px 0;
-      padding: 0 48px;
+      height: calc(100vh - var(--reader-page-margin-y) - var(--reader-page-margin-y));
+      margin: var(--reader-page-margin-y) 0;
+      padding: 0 var(--reader-page-padding-x);
       color: var(--reader-fg) !important;
       font-family: -apple-system, "PingFang SC", "Songti SC", "Noto Serif CJK SC", serif !important;
       font-size: var(--reader-font-size) !important;
       line-height: var(--reader-line-height) !important;
-      column-width: calc(100vw - 96px);
-      -webkit-column-width: calc(100vw - 96px);
-      column-gap: 96px;
-      -webkit-column-gap: 96px;
+      column-width: var(--reader-page-width);
+      -webkit-column-width: var(--reader-page-width);
+      column-gap: var(--reader-column-gap);
+      -webkit-column-gap: var(--reader-column-gap);
       overflow: visible;
     }
     .reader-chapter {
@@ -700,6 +704,7 @@ enum EPUBScripts {
       var lastWheelTurnAt = 0;
       var lastReportedPage = 0;
       var lastPageWidth = 0;
+      var lastKnownProgress = 0;
       var resizeTimer = null;
       var resizeObserverInstalled = false;
 
@@ -722,6 +727,16 @@ enum EPUBScripts {
         return Math.max(1, Math.ceil(v.scrollWidth / pageWidth()));
       }
 
+      function readingProgress() {
+        var pages = totalPages();
+        return pages > 0 ? (currentPage() + 1) / pages : 0;
+      }
+
+      function pageForProgress(progress) {
+        var pages = totalPages();
+        return Math.max(0, Math.min(pages - 1, Math.ceil(Math.max(0, Math.min(1, progress)) * pages) - 1));
+      }
+
       function currentPage() {
         var v = viewport();
         if (!v) return 0;
@@ -731,6 +746,7 @@ enum EPUBScripts {
       function rememberCurrentPage() {
         lastReportedPage = currentPage();
         lastPageWidth = pageWidth();
+        lastKnownProgress = readingProgress();
         return lastReportedPage;
       }
 
@@ -743,6 +759,7 @@ enum EPUBScripts {
         if (Math.abs(rawPage - rounded) < 0.02) {
           lastReportedPage = Math.max(0, Math.min(totalPages() - 1, rounded));
           lastPageWidth = width;
+          lastKnownProgress = readingProgress();
         }
         return Math.max(0, Math.min(totalPages() - 1, rounded));
       }
@@ -798,6 +815,7 @@ enum EPUBScripts {
         var clampedPage = Math.max(0, Math.min(totalPages() - 1, page));
         lastReportedPage = clampedPage;
         lastPageWidth = pageWidth();
+        lastKnownProgress = totalPages() > 0 ? (clampedPage + 1) / totalPages() : 0;
         var target = clampedPage * lastPageWidth;
         v.scrollTo({ left: target, top: 0, behavior: behavior || 'auto' });
         setTimeout(reportProgress, 80);
@@ -808,15 +826,12 @@ enum EPUBScripts {
         if (!v) return;
         var width = pageWidth();
         if (width <= 1) return;
-        if (lastPageWidth === 0) {
-          rememberCurrentPage();
-          return;
-        }
-        var targetPage = Math.max(0, Math.min(totalPages() - 1, lastReportedPage));
+        var targetPage = pageForProgress(lastKnownProgress || readingProgress());
         var targetLeft = targetPage * width;
         if (Math.abs(v.scrollLeft - targetLeft) > 1) {
           v.scrollTo({ left: targetLeft, top: 0, behavior: 'auto' });
         }
+        lastReportedPage = targetPage;
         lastPageWidth = width;
         setTimeout(reportProgress, 80);
       }
@@ -835,7 +850,7 @@ enum EPUBScripts {
         if (restoreTimer) clearTimeout(restoreTimer);
         restoreTimer = setTimeout(function() {
           var pages = totalPages();
-          var page = Math.max(0, Math.min(pages - 1, Math.ceil(Math.max(0, Math.min(1, progress)) * pages) - 1));
+          var page = pageForProgress(progress);
           goToPage(page, 'auto');
         }, 120);
       };
@@ -1108,6 +1123,7 @@ enum EPUBScripts {
       window.ReaderApplyStyles = function(bg, fg, fontSize, lineHeight) {
         try {
           injectCSS();
+          rememberCurrentPage();
           var root = document.documentElement;
           root.style.setProperty('--reader-bg', bg);
           root.style.setProperty('--reader-fg', fg);
@@ -1124,7 +1140,7 @@ enum EPUBScripts {
             document.body.style.background = bg;
             document.body.style.color = fg;
           }
-          setTimeout(reportProgress, 120);
+          setTimeout(realignAfterResize, 80);
         } catch(e) {}
       };
     })();

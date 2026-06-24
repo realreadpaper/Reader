@@ -51,6 +51,24 @@ final class PDFParserTests: XCTestCase {
         XCTAssertFalse(state.markIfChanged(options))
         XCTAssertTrue(state.markIfChanged(PDFRenderOptions(theme: .night, filterEnabled: false)))
     }
+
+    func testPDFScalePolicyRecomputesFromCurrentFitScale() {
+        XCTAssertEqual(
+            PDFScalePolicy.targetScale(fitScale: 0.8, userScale: 1.25),
+            1.0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            PDFScalePolicy.targetScale(fitScale: 0.5, userScale: 1.25),
+            0.625,
+            accuracy: 0.0001
+        )
+    }
+
+    func testPDFScalePolicyUsesToleranceToAvoidTinyScaleChurn() {
+        XCTAssertFalse(PDFScalePolicy.shouldUpdate(current: 1.0, target: 1.004))
+        XCTAssertTrue(PDFScalePolicy.shouldUpdate(current: 1.0, target: 1.02))
+    }
 }
 
 private extension CGColor {

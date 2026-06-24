@@ -9,10 +9,16 @@ struct BookListView: View {
     @Environment(ThemeManager.self) private var theme
 
     var body: some View {
-        List(selection: $selectedBook) {
-            ForEach(books, id: \.id) { book in
-                BookRowView(book: book)
-                    .tag(book)
+        ScrollView {
+            LazyVStack(spacing: 4) {
+                ForEach(books, id: \.id) { book in
+                    BookRowView(
+                        book: book,
+                        isSelected: selectedBook?.id == book.id
+                    )
+                    .onTapGesture {
+                        selectedBook = book
+                    }
                     .contextMenu {
                         Button(book.isFavorite ? "取消收藏" : "收藏") {
                             onToggleFavorite(book)
@@ -22,10 +28,11 @@ struct BookListView: View {
                             onDelete(book)
                         }
                     }
+                    .padding(.horizontal, 6)
+                }
             }
+            .padding(.vertical, 6)
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
         .background(theme.currentTheme.sidebarBG)
     }
 }

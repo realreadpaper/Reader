@@ -118,6 +118,7 @@ struct SidebarView: View {
     @MainActor
     private var allBooks: [Book] {
         _ = refreshToken
+        _ = storageService.libraryRevision
         switch selectedTab {
         case .all: return storageService.fetchBooks()
         case .recent: return storageService.fetchRecentBooks()

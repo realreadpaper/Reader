@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BookRowView: View {
     let book: Book
+    let isSelected: Bool
 
     @Environment(ThemeManager.self) private var theme
 
@@ -35,13 +36,13 @@ struct BookRowView: View {
                     Text(book.title)
                         .font(.subheadline)
                         .fontWeight(.medium)
-                        .foregroundStyle(theme.currentTheme.primaryText)
+                        .foregroundStyle(BookRowSelectionStyle.titleColor(theme: theme.currentTheme, isSelected: isSelected))
                         .lineLimit(1)
                 }
                 if let author = book.author, !author.isEmpty {
                     Text(author)
                         .font(.caption2)
-                        .foregroundStyle(theme.currentTheme.secondaryText)
+                        .foregroundStyle(BookRowSelectionStyle.secondaryColor(theme: theme.currentTheme, isSelected: isSelected))
                         .lineLimit(1)
                 }
                 HStack(spacing: 4) {
@@ -52,16 +53,27 @@ struct BookRowView: View {
                             .frame(width: 40)
                         Text("\(Int(book.progress * 100))%")
                             .font(.caption2)
-                            .foregroundStyle(theme.currentTheme.secondaryText)
+                            .foregroundStyle(BookRowSelectionStyle.secondaryColor(theme: theme.currentTheme, isSelected: isSelected))
                     } else {
                         Text("未开始")
                             .font(.caption2)
-                            .foregroundStyle(theme.currentTheme.secondaryText)
+                            .foregroundStyle(BookRowSelectionStyle.secondaryColor(theme: theme.currentTheme, isSelected: isSelected))
                     }
                 }
             }
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(BookRowSelectionStyle.backgroundColor(theme: theme.currentTheme, isSelected: isSelected))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(BookRowSelectionStyle.borderColor(theme: theme.currentTheme, isSelected: isSelected), lineWidth: 0.5)
+        )
     }
 
     private var coverGradient: LinearGradient {
@@ -82,5 +94,31 @@ struct BookRowView: View {
             return nil
         }
         return NSImage(data: data)
+    }
+}
+
+enum BookRowSelectionStyle {
+    static func backgroundColor(theme: AppTheme, isSelected: Bool) -> Color {
+        isSelected ? theme.border.opacity(0.72) : Color.clear
+    }
+
+    static func borderColor(theme: AppTheme, isSelected: Bool) -> Color {
+        isSelected ? theme.accent.opacity(0.45) : Color.clear
+    }
+
+    static func titleColor(theme: AppTheme, isSelected: Bool) -> Color {
+        theme.primaryText
+    }
+
+    static func secondaryColor(theme: AppTheme, isSelected: Bool) -> Color {
+        theme.secondaryText
+    }
+
+    static func backgroundHex(theme: AppTheme, isSelected: Bool) -> String {
+        isSelected ? theme.border.hex : "#00000000"
+    }
+
+    static func titleHex(theme: AppTheme, isSelected: Bool) -> String {
+        titleColor(theme: theme, isSelected: isSelected).hex
     }
 }

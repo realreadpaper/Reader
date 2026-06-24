@@ -8,6 +8,7 @@ struct TXTRendererView: View {
     @Binding var progress: Double
     let themeManager: ThemeManager
     let settings: ReaderSettings
+    let onProgress: (Double) -> Void
     let onSelection: (String, CGRect) -> Void
     let onPageReady: (() -> Void)?
 
@@ -19,6 +20,7 @@ struct TXTRendererView: View {
             theme: themeManager.currentTheme,
             fontSize: settings.fontSize,
             lineHeight: settings.lineHeight,
+            onProgress: onProgress,
             onSelection: onSelection,
             onPageReady: onPageReady
         )
@@ -32,6 +34,7 @@ struct TXTWebView: NSViewRepresentable {
     let theme: AppTheme
     let fontSize: Double
     let lineHeight: Double
+    let onProgress: (Double) -> Void
     let onSelection: (String, CGRect) -> Void
     let onPageReady: (() -> Void)?
 
@@ -222,9 +225,9 @@ struct TXTWebView: NSViewRepresentable {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
                 body {
-                    max-width: 600px;
+                    max-width: min(68ch, calc(100vw - 40px));
                     margin: 0 auto;
-                    padding: 40px 20px;
+                    padding: 40px clamp(14px, 4vw, 28px);
                     font-family: "Menlo", "Courier New", monospace;
                     font-size: \(fontSize)px;
                     line-height: \(lh);
@@ -254,6 +257,7 @@ struct TXTWebView: NSViewRepresentable {
         var lastFontSize: Double = 0
         var lastLineHeight: Double = 0
         var lastThemeHex: String = ""
+        private var restoredInitialProgress = false
         private var highlightObserver: NSObjectProtocol?
         private var restoreProgressObserver: NSObjectProtocol?
         private var restoreHighlightsObserver: NSObjectProtocol?
@@ -418,6 +422,7 @@ struct TXTWebView: NSViewRepresentable {
                 if let p = body["progress"] as? Double {
                     Task { @MainActor in
                         parent.progress = p
+                        parent.onProgress(p)
                     }
                 }
             default:
@@ -426,6 +431,14 @@ struct TXTWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            if !restoredInitialProgress {
+                restoredInitialProgress = true
+                let progress = max(0, min(1, parent.progress))
+                webView.evaluateJavaScript(
+                    "window.ReaderRestoreProgress && window.ReaderRestoreProgress(\(progress));",
+                    completionHandler: nil
+                )
+            }
             parent.onPageReady?()
         }
     }

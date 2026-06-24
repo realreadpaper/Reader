@@ -17,23 +17,32 @@ struct PDFContainerView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> PDFView {
-        let pdfView = PDFView()
+        let pdfView = AdaptivePDFView()
         pdfView.autoScales = false
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         pdfView.wantsLayer = true
         pdfView.delegate = context.coordinator
+        pdfView.onLayout = { [weak coordinator = context.coordinator, weak pdfView] in
+            guard let pdfView else { return }
+            guard let coordinator else { return }
+            coordinator.applyAdaptiveScale(to: pdfView, userScale: coordinator.currentUserScale)
+        }
         context.coordinator.parent = self
+        context.coordinator.currentUserScale = scaleFactor
         context.coordinator.applyRenderOptions(
             to: pdfView,
             theme: theme,
             filterEnabled: filterEnabled
         )
-        pdfView.scaleFactor = CGFloat(scaleFactor) * pdfView.scaleFactorForSizeToFit
 
         let doc = document ?? PDFDocument(url: url)
         if let doc {
             pdfView.document = doc
+        }
+        context.coordinator.applyAdaptiveScale(to: pdfView, userScale: scaleFactor)
+
+        if let doc {
             let startPage = max(0, min(targetPageIndex, doc.pageCount - 1))
             if doc.pageCount > 0, let page = doc.page(at: startPage) {
                 pdfView.go(to: page)
@@ -55,15 +64,13 @@ struct PDFContainerView: NSViewRepresentable {
 
     func updateNSView(_ pdfView: PDFView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.currentUserScale = scaleFactor
         context.coordinator.applyRenderOptions(
             to: pdfView,
             theme: theme,
             filterEnabled: filterEnabled
         )
-        let targetScale = CGFloat(scaleFactor) * pdfView.scaleFactorForSizeToFit
-        if abs(pdfView.scaleFactor - targetScale) > 0.01 {
-            pdfView.scaleFactor = targetScale
-        }
+        context.coordinator.applyAdaptiveScale(to: pdfView, userScale: scaleFactor)
 
         let doc = document ?? PDFDocument(url: url)
         if let doc, pdfView.document !== doc {
@@ -72,6 +79,7 @@ struct PDFContainerView: NSViewRepresentable {
             if doc.pageCount > 0, let page = doc.page(at: startPage) {
                 pdfView.go(to: page)
             }
+            context.coordinator.applyAdaptiveScale(to: pdfView, userScale: scaleFactor)
         } else if let doc = pdfView.document {
             let current = pdfView.currentPage.flatMap { doc.index(for: $0) } ?? -1
             if targetPageIndex >= 0 && targetPageIndex < doc.pageCount && targetPageIndex != current {
@@ -89,6 +97,15 @@ struct PDFContainerView: NSViewRepresentable {
         coordinator.stopObservingScrollToHighlight()
         coordinator.stopSelectionMonitoring()
         coordinator.pdfView = nil
+    }
+}
+
+final class AdaptivePDFView: PDFView {
+    var onLayout: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
     }
 }
 
@@ -140,6 +157,18 @@ struct PDFRenderOptionsState {
     }
 }
 
+enum PDFScalePolicy {
+    static func targetScale(fitScale: CGFloat, userScale: Double) -> CGFloat {
+        let safeFitScale = max(0.01, fitScale)
+        let safeUserScale = max(0.5, min(2.0, userScale))
+        return safeFitScale * CGFloat(safeUserScale)
+    }
+
+    static func shouldUpdate(current: CGFloat, target: CGFloat) -> Bool {
+        abs(current - target) > 0.01
+    }
+}
+
 final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
     let renderCoordinator: RenderCoordinator
     var parent: PDFContainerView?
@@ -152,6 +181,7 @@ final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
     private var lastPageIndex: Int = -1
     private var renderOptionsState = PDFRenderOptionsState()
     private var lastSelectedText: String = ""
+    var currentUserScale: Double = 1
 
     init(renderCoordinator: RenderCoordinator) {
         self.renderCoordinator = renderCoordinator
@@ -391,6 +421,17 @@ final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
         let options = PDFRenderOptions(theme: theme, filterEnabled: filterEnabled)
         guard renderOptionsState.markIfChanged(options) else { return }
         options.apply(to: pdfView)
+    }
+
+    func applyAdaptiveScale(to pdfView: PDFView, userScale: Double) {
+        guard pdfView.document != nil else { return }
+        let targetScale = PDFScalePolicy.targetScale(
+            fitScale: pdfView.scaleFactorForSizeToFit,
+            userScale: userScale
+        )
+        if PDFScalePolicy.shouldUpdate(current: pdfView.scaleFactor, target: targetScale) {
+            pdfView.scaleFactor = targetScale
+        }
     }
 
     private func handlePageChanged(_ notification: Notification) {

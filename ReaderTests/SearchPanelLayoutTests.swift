@@ -23,6 +23,11 @@ final class SearchPanelLayoutTests: XCTestCase {
         XCTAssertNotEqual(ReaderViewIdentity.id(for: first), ReaderViewIdentity.id(for: second))
     }
 
+    func testSidebarDefaultWidthUsesComfortableBookshelfLayout() {
+        XCTAssertEqual(SidebarLayoutPolicy.preferredWidth, SidebarLayoutPolicy.maxWidth)
+        XCTAssertGreaterThan(SidebarLayoutPolicy.preferredWidth, SidebarLayoutPolicy.minWidth)
+    }
+
     func testEPUBProgressUsesWholeBookPageCount() {
         XCTAssertEqual(
             EPUBProgressPolicy.overallProgress(currentPage: 0, totalPages: 10),
@@ -83,6 +88,19 @@ final class SearchPanelLayoutTests: XCTestCase {
         XCTAssertTrue(EPUBScripts.bootScript.contains("ResizeObserver"))
     }
 
+    func testEPUBPagingCSSUsesResponsivePageMetrics() {
+        XCTAssertTrue(EPUBScripts.cssTemplate.contains("--reader-page-padding-x: clamp"))
+        XCTAssertTrue(EPUBScripts.cssTemplate.contains("--reader-page-width: calc(100vw - var(--reader-page-padding-x) - var(--reader-page-padding-x))"))
+        XCTAssertTrue(EPUBScripts.cssTemplate.contains("column-width: var(--reader-page-width)"))
+        XCTAssertTrue(EPUBScripts.cssTemplate.contains("column-gap: var(--reader-column-gap)"))
+    }
+
+    func testEPUBPagingPreservesReadingProgressAfterReflow() {
+        XCTAssertTrue(EPUBScripts.bootScript.contains("lastKnownProgress"))
+        XCTAssertTrue(EPUBScripts.bootScript.contains("pageForProgress"))
+        XCTAssertTrue(EPUBScripts.bootScript.contains("setTimeout(realignAfterResize, 80)"))
+    }
+
     func testReaderPositionLabelUsesPagesForAllFormats() {
         XCTAssertEqual(
             ReaderPositionLabel.text(currentPage: 3, total: 9),
@@ -96,6 +114,69 @@ final class SearchPanelLayoutTests: XCTestCase {
             ReaderPositionLabel.text(currentPage: 4, total: 7),
             "第 4 页 / 共 7 页"
         )
+    }
+
+    func testBookRowSelectionStyleKeepsTitleReadable() {
+        XCTAssertEqual(BookRowSelectionStyle.titleHex(theme: .kraft, isSelected: false), "#1A1208")
+        XCTAssertEqual(BookRowSelectionStyle.titleHex(theme: .kraft, isSelected: true), "#1A1208")
+        XCTAssertEqual(BookRowSelectionStyle.backgroundHex(theme: .kraft, isSelected: true), "#D5C8B0")
+    }
+
+    @MainActor
+    func testStagedProgressUpdatesBookImmediatelyForShelf() throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let service = StorageService(modelContext: container.mainContext)
+        let book = Book(title: "Progress", filePath: "/tmp/progress.epub", fileType: .epub)
+
+        service.stageProgress(book, progress: 0.42)
+
+        XCTAssertEqual(book.progress, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(service.libraryRevision, 1)
+    }
+
+    @MainActor
+    func testToggleFavoritePersistsAndRefreshesLibraryRevision() throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let service = StorageService(modelContext: container.mainContext)
+        let book = service.addBook(title: "Favorite", filePath: "/tmp/favorite.epub", fileType: .epub)
+        let revisionAfterImport = service.libraryRevision
+
+        service.toggleFavorite(book)
+
+        XCTAssertTrue(book.isFavorite)
+        XCTAssertGreaterThan(service.libraryRevision, revisionAfterImport)
+        XCTAssertEqual(service.fetchFavoriteBooks().map(\.id), [book.id])
+    }
+
+    @MainActor
+    func testToggleFavoriteAgainRemovesBookFromFavorites() throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let service = StorageService(modelContext: container.mainContext)
+        let book = service.addBook(title: "Favorite", filePath: "/tmp/favorite.epub", fileType: .epub)
+
+        service.toggleFavorite(book)
+        service.toggleFavorite(book)
+
+        XCTAssertFalse(book.isFavorite)
+        XCTAssertTrue(service.fetchFavoriteBooks().isEmpty)
+    }
+
+    func testProgressRestoreGuardIgnoresInitialZeroReportWhenSavedProgressExists() {
+        var guardState = ProgressRestoreGuard(savedProgress: 0.58)
+
+        XCTAssertFalse(guardState.shouldAcceptReportedProgress(0))
+        XCTAssertFalse(guardState.shouldAcceptReportedProgress(0.2))
+        XCTAssertTrue(guardState.shouldAcceptReportedProgress(0.58))
+        XCTAssertTrue(guardState.shouldAcceptReportedProgress(0.6))
     }
 
     func testTOCStyleUsesOpaqueThemeBackgroundAndReadableText() {

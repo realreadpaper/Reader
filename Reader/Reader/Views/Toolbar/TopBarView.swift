@@ -9,9 +9,22 @@ struct TopBarView: View {
     let onSearchToggle: () -> Void
     let onFontToggle: () -> Void
     let onAnnotationsToggle: () -> Void
-    let onBookmarkAdded: (() -> Void)?
+    let onBookmarkChanged: (() -> Void)?
 
     @Environment(ThemeManager.self) private var themeManager
+    @State private var bookmarkToggleRefresh = false
+
+    @MainActor
+    private var isBookmarked: Bool {
+        _ = bookmarkToggleRefresh
+        let position = ReaderNavigationPosition.bookmarkPosition(
+            fileType: book.fileType,
+            currentChapter: coordinator.currentChapter,
+            pdfCurrentPage: coordinator.pdfCurrentPage,
+            progress: coordinator.progress
+        )
+        return storageService.findBookmark(for: book, at: position) != nil
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -38,12 +51,13 @@ struct TopBarView: View {
                 .keyboardShortcut("f", modifiers: .command)
                 .help("搜索 (⌘F)")
 
-                Button(action: addBookmark) {
-                    Image(systemName: "bookmark")
+                Button(action: toggleBookmark) {
+                    Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+                        .foregroundStyle(isBookmarked ? themeManager.currentTheme.accent : themeManager.currentTheme.secondaryText)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("d", modifiers: .command)
-                .help("添加书签 (⌘D)")
+                .help(isBookmarked ? "移除书签 (⌘D)" : "添加书签 (⌘D)")
 
                 Button(action: onFontToggle) {
                     Text("Aa")
@@ -85,19 +99,20 @@ struct TopBarView: View {
     }
 
     @MainActor
-    private func addBookmark() {
+    private func toggleBookmark() {
         let position = ReaderNavigationPosition.bookmarkPosition(
             fileType: book.fileType,
             currentChapter: coordinator.currentChapter,
             pdfCurrentPage: coordinator.pdfCurrentPage,
             progress: coordinator.progress
         )
-        _ = storageService.addBookmark(
-            to: book,
+        _ = storageService.toggleBookmark(
+            for: book,
             position: position,
             chapter: coordinator.currentTitle
         )
-        onBookmarkAdded?()
+        bookmarkToggleRefresh.toggle()
+        onBookmarkChanged?()
     }
 
     private func increaseFont() {

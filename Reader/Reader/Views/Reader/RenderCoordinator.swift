@@ -28,11 +28,13 @@ final class RenderCoordinator {
 
     private var lastReportedProgress: Double = -1
     private var progressSaveTimer: Timer?
+    private var restoreGuard: ProgressRestoreGuard
 
     init(book: Book, storageService: StorageService) {
         self.book = book
         self.storageService = storageService
         self.progress = book.progress
+        self.restoreGuard = ProgressRestoreGuard(savedProgress: book.progress)
     }
 
     func load() async {
@@ -132,6 +134,7 @@ final class RenderCoordinator {
         pdfCurrentPage = currentPage + 1
         pdfPageCount = totalPages
         let p = totalPages > 0 ? Double(currentPage + 1) / Double(totalPages) : 0
+        guard restoreGuard.shouldAcceptReportedProgress(p) else { return }
         progress = p
         scheduleProgressSave()
     }
@@ -142,10 +145,19 @@ final class RenderCoordinator {
         if metrics.chapterIndex >= 0, metrics.chapterIndex < chapters.count {
             currentChapter = metrics.chapterIndex
         }
-        progress = EPUBProgressPolicy.overallProgress(
+        let p = EPUBProgressPolicy.overallProgress(
             currentPage: metrics.currentPage,
             totalPages: metrics.totalPages
         )
+        guard restoreGuard.shouldAcceptReportedProgress(p) else { return }
+        progress = p
+        scheduleProgressSave()
+    }
+
+    func updateScrollableProgress(_ value: Double) {
+        let p = max(0, min(1, value))
+        guard restoreGuard.shouldAcceptReportedProgress(p) else { return }
+        progress = p
         scheduleProgressSave()
     }
 
@@ -405,6 +417,7 @@ final class RenderCoordinator {
         let value = progress
         if abs(value - lastReportedProgress) < 0.005 { return }
         lastReportedProgress = value
+        storageService.stageProgress(book, progress: value)
 
         progressSaveTimer?.invalidate()
         let book = self.book
@@ -414,5 +427,33 @@ final class RenderCoordinator {
                 storage.updateProgress(book, progress: value)
             }
         }
+    }
+
+    func flushProgressSave() {
+        progressSaveTimer?.invalidate()
+        progressSaveTimer = nil
+        storageService.updateProgress(book, progress: progress)
+    }
+}
+
+struct ProgressRestoreGuard {
+    private let savedProgress: Double
+    private var hasReachedSavedProgress: Bool
+
+    init(savedProgress: Double) {
+        self.savedProgress = max(0, min(1, savedProgress))
+        self.hasReachedSavedProgress = savedProgress <= 0.001
+    }
+
+    mutating func shouldAcceptReportedProgress(_ reportedProgress: Double) -> Bool {
+        let reported = max(0, min(1, reportedProgress))
+        guard !hasReachedSavedProgress else { return true }
+
+        if reported + 0.01 >= savedProgress {
+            hasReachedSavedProgress = true
+            return true
+        }
+
+        return false
     }
 }

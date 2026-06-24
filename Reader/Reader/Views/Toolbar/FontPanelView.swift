@@ -40,7 +40,7 @@ struct FontPanelView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Slider(value: $fontSize, in: 12...24, step: 1)
+                    Slider(value: $fontSize, in: 12...28, step: 1)
                         .tint(themeManager.currentTheme.accent)
 
                     Button(action: { fontSize = min(28, fontSize + 1) }) {

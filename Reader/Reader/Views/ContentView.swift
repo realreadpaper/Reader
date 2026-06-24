@@ -19,13 +19,19 @@ enum ReaderViewIdentity {
     }
 }
 
+enum SidebarLayoutPolicy {
+    static let minWidth: CGFloat = 220
+    static let preferredWidth: CGFloat = 280
+    static let maxWidth: CGFloat = 280
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(ThemeManager.self) private var themeManager
 
     @State private var selectedBook: Book?
     @State private var showSidebar = true
-    @State private var sidebarWidth: CGFloat = 220
+    @State private var sidebarWidth: CGFloat = SidebarLayoutPolicy.preferredWidth
     @State private var storageService: StorageService?
     @State private var library: BookLibrary?
     @State private var importError: String?
@@ -198,7 +204,10 @@ private struct SidebarResizeHandle: View {
                             .onChanged { value in
                                 let startWidth = dragStartWidth ?? width
                                 dragStartWidth = startWidth
-                                width = min(280, max(200, startWidth + value.translation.width))
+                                width = min(
+                                    SidebarLayoutPolicy.maxWidth,
+                                    max(SidebarLayoutPolicy.minWidth, startWidth + value.translation.width)
+                                )
                             }
                             .onEnded { _ in
                                 dragStartWidth = nil
