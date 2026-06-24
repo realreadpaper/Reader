@@ -92,7 +92,8 @@ final class MOBIParser: BookParser {
         var raw = Data()
         for i in first...last {
             let record = pdb.records[i]
-            let part = try MOBIDecompressor.decompress(record, compression: header.compression)
+            let decompressed = try MOBIDecompressor.decompress(record, compression: header.compression)
+            let part = stripTrailingExtraData(from: decompressed, flags: header.extraDataFlags)
             raw.append(part)
         }
         if header.textLength > 0, raw.count > header.textLength {
@@ -134,6 +135,47 @@ final class MOBIParser: BookParser {
             renderer: .html,
             pdfDocument: nil
         )
+    }
+
+    private func stripTrailingExtraData(from record: Data, flags: UInt32) -> Data {
+        guard flags != 0, !record.isEmpty else { return record }
+
+        var end = record.count
+        for bit in 0..<32 where (flags & (1 << UInt32(bit))) != 0 {
+            guard end > 0 else { return Data() }
+            if bit == 0 {
+                let overlapLength = Int(record[end - 1] & 0x03)
+                guard overlapLength <= end else { return Data() }
+                end -= overlapLength
+            } else {
+                guard let newEnd = extraDataStart(in: record, endingAt: end) else {
+                    break
+                }
+                end = newEnd
+            }
+        }
+
+        return end == record.count ? record : record.subdata(in: 0..<end)
+    }
+
+    private func extraDataStart(in record: Data, endingAt initialEnd: Int) -> Int? {
+        var end = initialEnd
+        var size = 0
+        var shift = 0
+
+        repeat {
+            guard end > 0, shift <= 28 else { return nil }
+            end -= 1
+            let byte = record[end]
+            size |= Int(byte & 0x7F) << shift
+            shift += 7
+            if byte & 0x80 == 0 {
+                break
+            }
+        } while true
+
+        guard size >= 0, size <= end else { return nil }
+        return end - size
     }
 
     private func splitChapters(in html: String) -> [String] {

@@ -68,6 +68,25 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("Parser behavior is unchanged."))
     }
 
+    func testParseClassicMOBIStripsTrailingExtraDataBeforeDecoding() async throws {
+        let firstChunk = "<html><body><h1>Clean Text</h1><p>"
+        let secondChunk = "正文不能混入尾部控制数据。</p></body></html>"
+        let tailPayload = Data("<span>TRAILING-NOISE</span>".utf8)
+        let tailNoise = tailPayload + Data([UInt8(tailPayload.count)])
+        let url = try makeClassicMOBIFixture(
+            htmlChunks: [firstChunk, secondChunk],
+            extraDataFlags: 0x0002,
+            trailingTextRecordData: [tailNoise, Data([0x01])]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("正文不能混入尾部控制数据"))
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("<p>正文不能混入尾部控制数据"))
+        XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("TRAILING-NOISE"))
+    }
+
     func testDecodeHTMLUsesLossyUTF8ForDeclaredUTF8() {
         var raw = Data("<p>逻辑".utf8)
         raw.append(0x91)
@@ -80,8 +99,27 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertFalse(html.contains("é»"))
     }
 
-    private func makeClassicMOBIFixture(html: String) throws -> URL {
-        let textRecord = palmDocLiteralRecord(for: Data(html.utf8))
+    private func makeClassicMOBIFixture(
+        html: String,
+        extraDataFlags: UInt32 = 0,
+        trailingTextRecordData: Data = Data()
+    ) throws -> URL {
+        try makeClassicMOBIFixture(
+            htmlChunks: [html],
+            extraDataFlags: extraDataFlags,
+            trailingTextRecordData: [trailingTextRecordData]
+        )
+    }
+
+    private func makeClassicMOBIFixture(
+        htmlChunks: [String],
+        extraDataFlags: UInt32 = 0,
+        trailingTextRecordData: [Data] = []
+    ) throws -> URL {
+        let htmlData = Data(htmlChunks.joined().utf8)
+        let textRecords = htmlChunks.enumerated().map { idx, chunk in
+            palmDocLiteralRecord(for: Data(chunk.utf8)) + trailingTextRecordData[safe: idx, default: Data()]
+        }
 
         var record0 = Data()
         var be16: UInt16
@@ -91,10 +129,10 @@ final class MOBIParserClassicTests: XCTestCase {
         be16 = UInt16(2).bigEndian
         record0.append(Data(bytes: &be16, count: 2))       // compression = PalmDOC
         record0.append(Data(repeating: 0, count: 2))       // unused
-        be32 = UInt32(Data(html.utf8).count).bigEndian
+        be32 = UInt32(htmlData.count).bigEndian
         record0.append(Data(bytes: &be32, count: 4))       // textLength
-        be16 = UInt16(1).bigEndian
-        record0.append(Data(bytes: &be16, count: 2))       // recordCount = 1
+        be16 = UInt16(textRecords.count).bigEndian
+        record0.append(Data(bytes: &be16, count: 2))       // recordCount
         be16 = UInt16(4096).bigEndian
         record0.append(Data(bytes: &be16, count: 2))       // recordSize
         record0.append(Data(repeating: 0, count: 4))       // encryption + unused
@@ -115,12 +153,16 @@ final class MOBIParserClassicTests: XCTestCase {
         be32 = UInt32(1).bigEndian
         record0.append(Data(bytes: &be32, count: 4))
         // lastTextRecord (record0 offset 48)
-        be32 = UInt32(1).bigEndian
+        be32 = UInt32(textRecords.count).bigEndian
         record0.append(Data(bytes: &be32, count: 4))
         // 填充到 MOBI header 总长 232
         // 已写 MOBI 部分: 4(identifier)+4(headerLen)+4(mobiType)+4(textEncoding)+4(uniqueID)+4(version)+4(firstText)+4(lastText) = 32 bytes
         // 剩 232-32 = 200 bytes
         record0.append(Data(repeating: 0, count: 200))
+        if extraDataFlags != 0 {
+            be32 = extraDataFlags.bigEndian
+            record0.replaceSubrange(240..<244, with: Data(bytes: &be32, count: 4))
+        }
 
         // EXTH block
         let exthStart = record0.count
@@ -157,18 +199,21 @@ final class MOBIParserClassicTests: XCTestCase {
         pdb.append("BOOK".data(using: .ascii)!)            // type
         pdb.append("MOBI".data(using: .ascii)!)            // creator
         pdb.append(Data(repeating: 0, count: 8))           // uniqueIDSeed + nextRecordListID
-        be16 = UInt16(2).bigEndian
-        pdb.append(Data(bytes: &be16, count: 2))           // numRecords = 2
-        let headerSize = 78 + 2 * 8 + 2                    // = 96
-        be32 = UInt32(headerSize).bigEndian
-        pdb.append(Data(bytes: &be32, count: 4))           // record 0 offset
-        pdb.append(Data(repeating: 0, count: 4))
-        be32 = UInt32(headerSize + record0.count).bigEndian
-        pdb.append(Data(bytes: &be32, count: 4))           // record 1 offset
-        pdb.append(Data(repeating: 0, count: 4))
+        let allRecords = [record0] + textRecords
+        be16 = UInt16(allRecords.count).bigEndian
+        pdb.append(Data(bytes: &be16, count: 2))           // numRecords
+        let headerSize = 78 + allRecords.count * 8 + 2
+        var nextOffset = headerSize
+        for record in allRecords {
+            be32 = UInt32(nextOffset).bigEndian
+            pdb.append(Data(bytes: &be32, count: 4))
+            pdb.append(Data(repeating: 0, count: 4))
+            nextOffset += record.count
+        }
         pdb.append(Data(repeating: 0, count: 2))           // padding
-        pdb.append(record0)
-        pdb.append(textRecord)
+        for record in allRecords {
+            pdb.append(record)
+        }
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".mobi")
@@ -198,5 +243,11 @@ final class MOBIParserClassicTests: XCTestCase {
             }
         }
         return textRecord
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index, default defaultValue: Element) -> Element {
+        indices.contains(index) ? self[index] : defaultValue
     }
 }

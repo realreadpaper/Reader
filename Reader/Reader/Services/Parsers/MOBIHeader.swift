@@ -35,6 +35,7 @@ struct MOBIHeader {
     let textLength: Int
     let firstImageRecord: Int?
     let textEncodingRaw: UInt32
+    let extraDataFlags: UInt32
     let title: String
     let author: String?
     let coverRecordIndex: Int?
@@ -87,6 +88,7 @@ struct MOBIHeader {
         let mobiVersion = record0.readUInt32BE(at: 36)
         let textEncodingRaw = record0.readUInt32BE(at: 28)
         let textLength = Int(record0.readUInt32BE(at: 4))
+        let extraDataFlags = record0.count >= 244 ? record0.readUInt32BE(at: 240) : 0
         // PalmDOC 头 offset 8-10 是 text record count（不含 record0 头记录）
         // 这是经典 MOBI 文本范围的权威来源，比 MOBI header 内部的字段更可靠
         let palmDocTextRecordCount = Int(record0.readUInt16BE(at: 8))
@@ -169,6 +171,7 @@ struct MOBIHeader {
             textLength: textLength,
             firstImageRecord: firstImageRecord > 0 ? firstImageRecord : nil,
             textEncodingRaw: textEncodingRaw,
+            extraDataFlags: extraDataFlags,
             title: finalTitle,
             author: author,
             coverRecordIndex: coverRecordIndex
@@ -201,6 +204,7 @@ struct MOBIHeader {
                         textLength: base.textLength,
                         firstImageRecord: base.firstImageRecord,
                         textEncodingRaw: base.textEncodingRaw,
+                        extraDataFlags: base.extraDataFlags,
                         title: base.title,
                         author: base.author,
                         coverRecordIndex: base.coverRecordIndex
@@ -221,6 +225,7 @@ struct MOBIHeader {
                 textLength: base.textLength,
                 firstImageRecord: base.firstImageRecord,
                 textEncodingRaw: base.textEncodingRaw,
+                extraDataFlags: base.extraDataFlags,
                 title: base.title,
                 author: base.author,
                 coverRecordIndex: base.coverRecordIndex
