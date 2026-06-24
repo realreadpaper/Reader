@@ -11,6 +11,7 @@ struct ReaderView: View {
     @State private var coordinator: RenderCoordinator
     @State private var selectionInfo: SelectionInfo?
     @State private var highlightToast: String?
+    @State private var annotationRefreshToken = UUID()
 
     struct SelectionInfo: Identifiable, Equatable {
         let id = UUID()
@@ -37,23 +38,11 @@ struct ReaderView: View {
                     onTOCToggle: { coordinator.showTOC.toggle() },
                     onSearchToggle: { coordinator.showSearch.toggle() },
                     onFontToggle: { coordinator.showFontPanel.toggle() },
-                    onAnnotationsToggle: { coordinator.showAnnotations.toggle() }
+                    onAnnotationsToggle: { coordinator.showAnnotations.toggle() },
+                    onBookmarkAdded: { annotationRefreshToken = UUID() }
                 )
 
-                HStack(spacing: 0) {
-                    if coordinator.showTOC {
-                        TOCView(
-                            chapters: coordinator.tocEntries.map { ($0.title, $0.chapterIndex) },
-                            onChapterSelect: { coordinator.navigateToChapter($0) },
-                            showPageNumbers: true,
-                            currentIndex: book.fileType == .pdf
-                                ? coordinator.pdfCurrentPage - 1
-                                : coordinator.currentChapter
-                        )
-                        .frame(width: 220)
-                        .background(themeManager.currentTheme.sidebarBG)
-                    }
-
+                ZStack(alignment: .leading) {
                     mainRenderer
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(themeManager.currentTheme.contentBG)
@@ -62,6 +51,22 @@ struct ReaderView: View {
                                 LoadingOverlay()
                             }
                         }
+
+                    if coordinator.showTOC {
+                        TOCPanelOverlay(
+                            chapters: coordinator.tocEntries.map { ($0.title, $0.chapterIndex) },
+                            currentIndex: book.fileType == .pdf
+                                ? coordinator.pdfCurrentPage - 1
+                                : coordinator.currentChapter,
+                            onChapterSelect: { chapterIndex in
+                                coordinator.navigateToChapter(chapterIndex)
+                                coordinator.showTOC = false
+                            },
+                            onClose: { coordinator.showTOC = false }
+                        )
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .zIndex(4)
+                    }
                 }
 
                 BottomBarView(book: book, coordinator: coordinator)
@@ -107,16 +112,13 @@ struct ReaderView: View {
 
             if coordinator.showAnnotations {
                 AnnotationPanelOverlay(
-                    highlights: storageService.fetchHighlights(for: book),
+                    refreshToken: annotationRefreshToken,
                     bookmarks: storageService.fetchBookmarks(for: book),
                     onClose: { coordinator.showAnnotations = false },
-                    onHighlightSelect: { navigateToHighlight($0) },
-                    onHighlightDelete: { highlight in
-                        storageService.deleteHighlight(highlight)
-                    },
                     onBookmarkSelect: { navigateToBookmark($0) },
                     onBookmarkDelete: { bookmark in
                         storageService.deleteBookmark(bookmark)
+                        annotationRefreshToken = UUID()
                     }
                 )
                 .transition(.move(edge: .leading).combined(with: .opacity))
@@ -146,6 +148,7 @@ struct ReaderView: View {
         .task {
             await coordinator.load()
             storageService.updateBook(book)
+            postRestoreHighlights()
         }
         .alert("无法打开", isPresented: Binding(
             get: { coordinator.loadError != nil },
@@ -182,7 +185,8 @@ struct ReaderView: View {
                     onPageMetrics: { coordinator.updateEPUBProgress($0) },
                     onSelection: { text, rect in
                         handleSelection(text: text, rect: rect)
-                    }
+                    },
+                    onPageReady: { postRestoreHighlights() }
                 )
             } else if coordinator.loadError != nil {
                 EmptyView()
@@ -210,7 +214,8 @@ struct ReaderView: View {
                     settings: settings,
                     onSelection: { text, rect in
                         handleSelection(text: text, rect: rect)
-                    }
+                    },
+                    onPageReady: { postRestoreHighlights() }
                 )
             } else {
                 Text("加载中...")
@@ -228,7 +233,8 @@ struct ReaderView: View {
                     settings: settings,
                     onSelection: { text, rect in
                         handleSelection(text: text, rect: rect)
-                    }
+                    },
+                    onPageReady: { postRestoreHighlights() }
                 )
             } else {
                 Text("加载中...")
@@ -262,17 +268,22 @@ struct ReaderView: View {
             currentChapter: coordinator.currentChapter,
             pdfCurrentPage: coordinator.pdfCurrentPage
         )
+        let range = ReaderNavigationPosition.highlightRange(
+            startOffset: offsetBase,
+            selectedText: info.text
+        )
 
         _ = storageService.addHighlight(
             to: book,
             text: info.text,
             color: color,
-            startOffset: offsetBase,
-            endOffset: offsetBase + info.text.count,
+            startOffset: range.start,
+            endOffset: range.end,
             chapter: chapterTitle
         )
 
         applyHighlightInWebView(color: color)
+        annotationRefreshToken = UUID()
         selectionInfo = nil
         withAnimation {
             highlightToast = "已添加高亮"
@@ -286,6 +297,16 @@ struct ReaderView: View {
             name: .applyHighlightRequest,
             object: nil,
             userInfo: ["className": className]
+        )
+    }
+
+    @MainActor
+    func postRestoreHighlights() {
+        let highlights = storageService.fetchHighlights(for: book)
+        NotificationCenter.default.post(
+            name: .restoreHighlights,
+            object: nil,
+            userInfo: ["highlights": highlights]
         )
     }
 
@@ -306,27 +327,6 @@ struct ReaderView: View {
                         object: nil,
                         userInfo: ["progress": progress]
                     )
-                }
-            }
-        }
-    }
-
-    @MainActor
-    private func navigateToHighlight(_ highlight: Highlight) {
-        coordinator.showAnnotations = false
-        switch book.fileType {
-        case .pdf:
-            // For PDF, startOffset encodes the page index: chapter * 1_000_000 + offset
-            let pageIndex = highlight.startOffset / 1_000_000
-            coordinator.navigateToChapter(pageIndex)
-        case .epub, .mobi, .txt, .md:
-            if let chapterStr = highlight.chapter,
-               let chapterIndex = coordinator.tocEntries.firstIndex(where: { $0.title == chapterStr }) {
-                coordinator.navigateToChapter(chapterIndex)
-            } else {
-                let chapterIndex = highlight.startOffset / 1_000_000
-                if chapterIndex >= 0 && chapterIndex < coordinator.chapters.count {
-                    coordinator.navigateToChapter(chapterIndex)
                 }
             }
         }
@@ -420,47 +420,70 @@ struct SearchPanelOverlay: View {
     }
 }
 
+// MARK: - TOC overlay
+
+struct TOCPanelOverlay: View {
+    let chapters: [(title: String, chapterIndex: Int)]
+    let currentIndex: Int
+    let onChapterSelect: (Int) -> Void
+    let onClose: () -> Void
+
+    @Environment(ThemeManager.self) private var themeManager
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Color.black.opacity(0.01)
+                .onTapGesture { onClose() }
+
+            TOCView(
+                chapters: chapters,
+                onChapterSelect: onChapterSelect,
+                showPageNumbers: true,
+                currentIndex: currentIndex
+            )
+            .frame(width: 220)
+            .frame(maxHeight: .infinity)
+            .background(TOCStyle.background(for: themeManager.currentTheme))
+            .shadow(color: .black.opacity(0.15), radius: 8)
+        }
+    }
+}
+
 // MARK: - Annotation panel overlay
 
 struct AnnotationPanelOverlay: View {
-    let highlights: [Highlight]
+    let refreshToken: UUID
     let bookmarks: [Bookmark]
     let onClose: () -> Void
-    let onHighlightSelect: (Highlight) -> Void
-    let onHighlightDelete: (Highlight) -> Void
     let onBookmarkSelect: (Bookmark) -> Void
     let onBookmarkDelete: (Bookmark) -> Void
 
     @Environment(ThemeManager.self) private var themeManager
-    @State private var selectedTab: Tab = .highlights
-
-    enum Tab: String, CaseIterable {
-        case highlights = "高亮"
-        case bookmarks = "书签"
-    }
 
     var body: some View {
         ZStack(alignment: .leading) {
             Color.black.opacity(0.01)
                 .onTapGesture { onClose() }
             VStack(spacing: 0) {
-                Picker("", selection: $selectedTab) {
-                    ForEach(Tab.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
+                HStack {
+                    Text("书签")
+                        .font(.headline)
+                        .foregroundStyle(themeManager.currentTheme.primaryText)
+                    Spacer()
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(themeManager.currentTheme.secondaryText)
                     }
+                    .buttonStyle(.plain)
                 }
-                .pickerStyle(.segmented)
-                .padding(10)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
 
-                switch selectedTab {
-                case .highlights:
-                    if highlights.isEmpty {
-                        EmptyStateView(text: "暂无高亮")
-                    } else {
-                        AnnotationView(highlights: highlights, onHighlightSelect: onHighlightSelect)
-                            .frame(maxHeight: .infinity)
-                    }
-                case .bookmarks:
+                Divider()
+                    .background(themeManager.currentTheme.border)
+
+                Group {
                     if bookmarks.isEmpty {
                         EmptyStateView(text: "暂无书签")
                     } else {
@@ -468,6 +491,7 @@ struct AnnotationPanelOverlay: View {
                             .frame(maxHeight: .infinity)
                     }
                 }
+                .id(refreshToken)
             }
             .frame(width: 260)
             .background(themeManager.currentTheme.sidebarBG)
@@ -525,9 +549,12 @@ struct BookmarkListView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(.vertical, 4)
+                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(themeManager.currentTheme.sidebarBG)
     }
 }
 
@@ -537,4 +564,6 @@ extension Notification.Name {
     static let applyHighlightRequest = Notification.Name("applyHighlightRequest")
     static let epubSearchRequest = Notification.Name("epubSearchRequest")
     static let epubRestoreProgress = Notification.Name("epubRestoreProgress")
+    static let restoreHighlights = Notification.Name("restoreHighlights")
+    static let scrollToHighlight = Notification.Name("scrollToHighlight")
 }

@@ -47,6 +47,8 @@ struct PDFContainerView: NSViewRepresentable {
         context.coordinator.pdfView = pdfView
         context.coordinator.startObservingPageChanges(pdfView: pdfView)
         context.coordinator.startObservingHighlightRequests()
+        context.coordinator.startObservingRestoreHighlights()
+        context.coordinator.startObservingScrollToHighlight()
         context.coordinator.startSelectionMonitoring(pdfView: pdfView)
         return pdfView
     }
@@ -83,6 +85,8 @@ struct PDFContainerView: NSViewRepresentable {
     static func dismantleNSView(_ pdfView: PDFView, coordinator: PDFRendererCoordinator) {
         coordinator.stopObservingPageChanges()
         coordinator.stopObservingHighlightRequests()
+        coordinator.stopObservingRestoreHighlights()
+        coordinator.stopObservingScrollToHighlight()
         coordinator.stopSelectionMonitoring()
         coordinator.pdfView = nil
     }
@@ -142,6 +146,8 @@ final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
     weak var pdfView: PDFView?
     private var pageChangeObserver: NSObjectProtocol?
     private var highlightObserver: NSObjectProtocol?
+    private var restoreHighlightsObserver: NSObjectProtocol?
+    private var scrollToHighlightObserver: NSObjectProtocol?
     private var eventMonitor: Any?
     private var lastPageIndex: Int = -1
     private var renderOptionsState = PDFRenderOptionsState()
@@ -156,6 +162,12 @@ final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
             NotificationCenter.default.removeObserver(obs)
         }
         if let obs = highlightObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        if let obs = restoreHighlightsObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        if let obs = scrollToHighlightObserver {
             NotificationCenter.default.removeObserver(obs)
         }
         if let monitor = eventMonitor {
@@ -214,6 +226,92 @@ final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
         if let obs = highlightObserver {
             NotificationCenter.default.removeObserver(obs)
             highlightObserver = nil
+        }
+    }
+
+    func startObservingRestoreHighlights() {
+        guard restoreHighlightsObserver == nil else { return }
+        restoreHighlightsObserver = NotificationCenter.default.addObserver(
+            forName: .restoreHighlights,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let highlights = notification.userInfo?["highlights"] as? [Highlight] else { return }
+            Task { @MainActor in
+                self.restorePDFHighlights(highlights)
+            }
+        }
+    }
+
+    func stopObservingRestoreHighlights() {
+        if let obs = restoreHighlightsObserver {
+            NotificationCenter.default.removeObserver(obs)
+            restoreHighlightsObserver = nil
+        }
+    }
+
+    func startObservingScrollToHighlight() {
+        guard scrollToHighlightObserver == nil else { return }
+        scrollToHighlightObserver = NotificationCenter.default.addObserver(
+            forName: .scrollToHighlight,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let text = notification.userInfo?["text"] as? String,
+                  let pdfView = self.pdfView,
+                  let document = pdfView.document else { return }
+            let selections = document.findString(text, withOptions: .caseInsensitive)
+            if let first = selections.first, let page = first.pages.first {
+                pdfView.go(to: page)
+            }
+        }
+    }
+
+    func stopObservingScrollToHighlight() {
+        if let obs = scrollToHighlightObserver {
+            NotificationCenter.default.removeObserver(obs)
+            scrollToHighlightObserver = nil
+        }
+    }
+
+    @MainActor
+    private func restorePDFHighlights(_ highlights: [Highlight]) {
+        guard let pdfView, let document = pdfView.document else { return }
+
+        // Remove existing highlight annotations
+        for i in 0..<document.pageCount {
+            guard let page = document.page(at: i) else { continue }
+            let annotations = page.annotations.filter { $0.type == "Highlight" }
+            for annotation in annotations {
+                page.removeAnnotation(annotation)
+            }
+        }
+
+        // Re-add highlights from stored data
+        for highlight in highlights {
+            let colorName = highlight.color.rawValue
+            let pdfColor: NSColor
+            switch colorName {
+            case "yellow": pdfColor = NSColor(red: 0.96, green: 0.84, blue: 0.43, alpha: 0.55)
+            case "green":  pdfColor = NSColor(red: 0.49, green: 0.78, blue: 0.63, alpha: 0.55)
+            case "orange": pdfColor = NSColor(red: 0.91, green: 0.66, blue: 0.49, alpha: 0.55)
+            case "blue":   pdfColor = NSColor(red: 0.63, green: 0.72, blue: 0.91, alpha: 0.55)
+            default:       pdfColor = NSColor(red: 0.96, green: 0.84, blue: 0.43, alpha: 0.55)
+            }
+
+            let selections = document.findString(highlight.selectedText, withOptions: .caseInsensitive)
+            for selection in selections {
+                for lineSelection in selection.selectionsByLine() {
+                    guard let page = lineSelection.pages.first else { continue }
+                    let bounds = lineSelection.bounds(for: page)
+                    guard !bounds.isEmpty else { continue }
+                    let annotation = PDFAnnotation(bounds: bounds, forType: .highlight, withProperties: nil)
+                    annotation.color = pdfColor
+                    page.addAnnotation(annotation)
+                }
+            }
         }
     }
 

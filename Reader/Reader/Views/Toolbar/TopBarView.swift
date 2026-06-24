@@ -9,6 +9,7 @@ struct TopBarView: View {
     let onSearchToggle: () -> Void
     let onFontToggle: () -> Void
     let onAnnotationsToggle: () -> Void
+    let onBookmarkAdded: (() -> Void)?
 
     @Environment(ThemeManager.self) private var themeManager
 
@@ -96,6 +97,7 @@ struct TopBarView: View {
             position: position,
             chapter: coordinator.currentTitle
         )
+        onBookmarkAdded?()
     }
 
     private func increaseFont() {

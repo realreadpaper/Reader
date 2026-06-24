@@ -6,6 +6,7 @@ struct SidebarView: View {
     let library: BookLibrary
     @Binding var selectedBook: Book?
     let onRequestImport: () -> Void
+    let onToggleSidebar: () -> Void
     @Binding var importError: String?
 
     @State private var selectedTab: SidebarTab = .all
@@ -22,10 +23,20 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
+                Button(action: onToggleSidebar) {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.currentTheme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("收起书架 (⇧⌘S)")
+
                 Text("书架")
                     .font(.headline)
                     .foregroundStyle(theme.currentTheme.primaryText)
+
                 Spacer()
+
                 Button(action: onRequestImport) {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .medium))

@@ -17,6 +17,7 @@ struct EPUBRendererView: View {
     let initialProgress: Double
     let onPageMetrics: (EPUBPageMetrics) -> Void
     let onSelection: (String, CGRect) -> Void
+    let onPageReady: (() -> Void)?
 
     var body: some View {
         EPUBWebView(
@@ -28,7 +29,8 @@ struct EPUBRendererView: View {
             lineHeight: settings.lineHeight,
             initialProgress: initialProgress,
             onPageMetrics: onPageMetrics,
-            onSelection: onSelection
+            onSelection: onSelection,
+            onPageReady: onPageReady
         )
     }
 }
@@ -43,6 +45,7 @@ struct EPUBWebView: NSViewRepresentable {
     let initialProgress: Double
     let onPageMetrics: (EPUBPageMetrics) -> Void
     let onSelection: (String, CGRect) -> Void
+    let onPageReady: (() -> Void)?
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -70,6 +73,8 @@ struct EPUBWebView: NSViewRepresentable {
         context.coordinator.startObservingHighlightRequests()
         context.coordinator.startObservingSearchRequests()
         context.coordinator.startObservingRestoreProgress()
+        context.coordinator.startObservingRestoreHighlights()
+        context.coordinator.startObservingScrollToHighlight()
 
         if !chapters.isEmpty {
             context.coordinator.loadBook(
@@ -109,6 +114,8 @@ struct EPUBWebView: NSViewRepresentable {
         coordinator.stopObservingHighlightRequests()
         coordinator.stopObservingSearchRequests()
         coordinator.stopObservingRestoreProgress()
+        coordinator.stopObservingRestoreHighlights()
+        coordinator.stopObservingScrollToHighlight()
         coordinator.webView = nil
     }
 
@@ -128,6 +135,8 @@ struct EPUBWebView: NSViewRepresentable {
         private var highlightObserver: NSObjectProtocol?
         private var searchObserver: NSObjectProtocol?
         private var restoreProgressObserver: NSObjectProtocol?
+        private var restoreHighlightsObserver: NSObjectProtocol?
+        private var scrollToHighlightObserver: NSObjectProtocol?
 
         init(parent: EPUBWebView) {
             self.parent = parent
@@ -141,6 +150,12 @@ struct EPUBWebView: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(obs)
             }
             if let obs = restoreProgressObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            if let obs = restoreHighlightsObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            if let obs = scrollToHighlightObserver {
                 NotificationCenter.default.removeObserver(obs)
             }
         }
@@ -208,6 +223,61 @@ struct EPUBWebView: NSViewRepresentable {
             if let obs = restoreProgressObserver {
                 NotificationCenter.default.removeObserver(obs)
                 restoreProgressObserver = nil
+            }
+        }
+
+        func startObservingRestoreHighlights() {
+            guard restoreHighlightsObserver == nil else { return }
+            restoreHighlightsObserver = NotificationCenter.default.addObserver(
+                forName: .restoreHighlights,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let highlights = notification.userInfo?["highlights"] as? [Highlight] else { return }
+                let data = highlights.compactMap { hl -> [String: String]? in
+                    guard let text = hl.selectedText as String? else { return nil }
+                    return ["text": text, "color": hl.color.rawValue]
+                }
+                guard !data.isEmpty,
+                      let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                      let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+                let escaped = jsonString.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+                self.webView?.evaluateJavaScript(
+                    "window.ReaderRestoreHighlights && window.ReaderRestoreHighlights(JSON.parse('\(escaped)'));",
+                    completionHandler: nil
+                )
+            }
+        }
+
+        func stopObservingRestoreHighlights() {
+            if let obs = restoreHighlightsObserver {
+                NotificationCenter.default.removeObserver(obs)
+                restoreHighlightsObserver = nil
+            }
+        }
+
+        func startObservingScrollToHighlight() {
+            guard scrollToHighlightObserver == nil else { return }
+            scrollToHighlightObserver = NotificationCenter.default.addObserver(
+                forName: .scrollToHighlight,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let text = notification.userInfo?["text"] as? String else { return }
+                let escaped = text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+                self.webView?.evaluateJavaScript(
+                    "window.ReaderScrollToHighlight && window.ReaderScrollToHighlight('\(escaped)');",
+                    completionHandler: nil
+                )
+            }
+        }
+
+        func stopObservingScrollToHighlight() {
+            if let obs = scrollToHighlightObserver {
+                NotificationCenter.default.removeObserver(obs)
+                scrollToHighlightObserver = nil
             }
         }
 
@@ -322,6 +392,7 @@ struct EPUBWebView: NSViewRepresentable {
                     completionHandler: nil
                 )
             }
+            parent.onPageReady?()
         }
 
         // MARK: - JS helpers for host code
@@ -392,9 +463,6 @@ enum EPUBScripts {
     }
 
     static func wrapHTML(body: String, theme: AppTheme, fontSize: Double, lineHeight: Double) -> String {
-        let bg = theme.contentBG.hex
-        let fg = theme.primaryText.hex
-        let lh = String(format: "%.2f", lineHeight)
         return """
         <!DOCTYPE html>
         <html>
@@ -626,11 +694,14 @@ enum EPUBScripts {
 
       var scrollTimer = null;
       var restoreTimer = null;
-      var hasRestored = false;
       var handlersInstalled = false;
       var wheelAccumulator = 0;
       var wheelResetTimer = null;
       var lastWheelTurnAt = 0;
+      var lastReportedPage = 0;
+      var lastPageWidth = 0;
+      var resizeTimer = null;
+      var resizeObserverInstalled = false;
 
       function viewport() {
         return document.getElementById('reader-viewport');
@@ -655,6 +726,25 @@ enum EPUBScripts {
         var v = viewport();
         if (!v) return 0;
         return Math.max(0, Math.min(totalPages() - 1, Math.round(v.scrollLeft / pageWidth())));
+      }
+
+      function rememberCurrentPage() {
+        lastReportedPage = currentPage();
+        lastPageWidth = pageWidth();
+        return lastReportedPage;
+      }
+
+      function rememberSettledPage() {
+        var v = viewport();
+        var width = pageWidth();
+        if (!v || width <= 1) return rememberCurrentPage();
+        var rawPage = v.scrollLeft / width;
+        var rounded = Math.round(rawPage);
+        if (Math.abs(rawPage - rounded) < 0.02) {
+          lastReportedPage = Math.max(0, Math.min(totalPages() - 1, rounded));
+          lastPageWidth = width;
+        }
+        return Math.max(0, Math.min(totalPages() - 1, rounded));
       }
 
       function chapterAtViewportCenter() {
@@ -684,7 +774,7 @@ enum EPUBScripts {
 
       function reportProgress() {
         try {
-          var page = currentPage();
+          var page = rememberSettledPage();
           window.webkit.messageHandlers.readerBridge.postMessage({
             type: 'progress',
             currentPage: page,
@@ -705,9 +795,35 @@ enum EPUBScripts {
       function goToPage(page, behavior) {
         var v = viewport();
         if (!v) return;
-        var target = Math.max(0, Math.min(totalPages() - 1, page)) * pageWidth();
+        var clampedPage = Math.max(0, Math.min(totalPages() - 1, page));
+        lastReportedPage = clampedPage;
+        lastPageWidth = pageWidth();
+        var target = clampedPage * lastPageWidth;
         v.scrollTo({ left: target, top: 0, behavior: behavior || 'auto' });
         setTimeout(reportProgress, 80);
+      }
+
+      function realignAfterResize() {
+        var v = viewport();
+        if (!v) return;
+        var width = pageWidth();
+        if (width <= 1) return;
+        if (lastPageWidth === 0) {
+          rememberCurrentPage();
+          return;
+        }
+        var targetPage = Math.max(0, Math.min(totalPages() - 1, lastReportedPage));
+        var targetLeft = targetPage * width;
+        if (Math.abs(v.scrollLeft - targetLeft) > 1) {
+          v.scrollTo({ left: targetLeft, top: 0, behavior: 'auto' });
+        }
+        lastPageWidth = width;
+        setTimeout(reportProgress, 80);
+      }
+
+      function scheduleResizeRealignment() {
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(realignAfterResize, 80);
       }
 
       window.ReaderTurnPage = function(delta) {
@@ -716,8 +832,6 @@ enum EPUBScripts {
       };
 
       window.ReaderRestoreProgress = function(progress) {
-        if (hasRestored) return;
-        hasRestored = true;
         if (restoreTimer) clearTimeout(restoreTimer);
         restoreTimer = setTimeout(function() {
           var pages = totalPages();
@@ -846,6 +960,11 @@ enum EPUBScripts {
         if (!v) return;
         handlersInstalled = true;
         v.addEventListener('scroll', scheduleReport);
+        if (!resizeObserverInstalled && typeof ResizeObserver !== 'undefined') {
+          resizeObserverInstalled = true;
+          var observer = new ResizeObserver(scheduleResizeRealignment);
+          observer.observe(v);
+        }
         window.addEventListener('wheel', function(event) {
           var delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
           if (Math.abs(delta) < 1) return;
@@ -884,7 +1003,7 @@ enum EPUBScripts {
         reportProgress();
       });
       window.addEventListener('resize', function() {
-        setTimeout(reportProgress, 120);
+        scheduleResizeRealignment();
       });
       window.addEventListener('load', function() {
         installPagingHandlers();
@@ -913,6 +1032,76 @@ enum EPUBScripts {
         try {
           var sel = window.getSelection();
           if (sel) sel.removeAllRanges();
+        } catch(e) {}
+      };
+
+      window.ReaderRestoreHighlights = function(highlights) {
+        try {
+          var existing = document.querySelectorAll('span[data-reader-highlight]');
+          existing.forEach(function(el) {
+            var parent = el.parentNode;
+            if (!parent) return;
+            parent.insertBefore(document.createTextNode(el.textContent || ''), el);
+            parent.removeChild(el);
+            parent.normalize();
+          });
+
+          if (!highlights || highlights.length === 0) return;
+
+          highlights.forEach(function(hl) {
+            var text = hl.text;
+            var color = hl.color;
+            if (!text || text.length === 0) return;
+            var className = 'reader-highlight-' + color;
+
+            var walker = document.createTreeWalker(
+              document.getElementById('reader-book') || document.body,
+              NodeFilter.SHOW_TEXT,
+              null
+            );
+            var node;
+            while (node = walker.nextNode()) {
+              var nodeText = node.nodeValue || '';
+              var idx = nodeText.indexOf(text);
+              if (idx < 0) continue;
+              try {
+                var range = document.createRange();
+                range.setStart(node, idx);
+                range.setEnd(node, idx + text.length);
+                var span = document.createElement('span');
+                span.className = className;
+                span.setAttribute('data-reader-highlight', 'true');
+                range.surroundContents(span);
+              } catch(e) {}
+            }
+          });
+        } catch(e) {}
+      };
+
+      window.ReaderScrollToHighlight = function(text) {
+        try {
+          if (!text) return;
+          var book = document.getElementById('reader-book') || document.body;
+          var walker = document.createTreeWalker(book, NodeFilter.SHOW_TEXT, null);
+          var node;
+          while (node = walker.nextNode()) {
+            var nodeText = node.nodeValue || '';
+            var idx = nodeText.indexOf(text);
+            if (idx < 0) continue;
+            var range = document.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, idx + text.length);
+            var rect = range.getBoundingClientRect();
+            if (rect.width > 0 || rect.height > 0) {
+              var v = viewport();
+              if (v) {
+                var vRect = v.getBoundingClientRect();
+                var left = rect.left - vRect.left + v.scrollLeft;
+                goToPage(Math.floor(left / pageWidth()), 'smooth');
+              }
+            }
+            break;
+          }
         } catch(e) {}
       };
 

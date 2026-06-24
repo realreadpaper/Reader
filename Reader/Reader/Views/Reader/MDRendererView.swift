@@ -10,11 +10,13 @@ struct MDRendererView: View {
     let storageService: StorageService
     let settings: ReaderSettings
     let onSelection: (String, CGRect) -> Void
+    let onPageReady: (() -> Void)?
 
     @State private var layoutMode: MDLayoutMode = .split
     @State private var editedContent: String = ""
     @State private var originalContent: String = ""
     @State private var hasUnsavedChanges = false
+    @State private var saveError: String?
 
     enum MDLayoutMode: String, CaseIterable {
         case split = "分栏"
@@ -50,6 +52,17 @@ struct MDRendererView: View {
 
                 Spacer()
 
+                Button(action: saveContent) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 13))
+                        .frame(width: 28, height: 24)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(hasUnsavedChanges ? themeManager.currentTheme.accent : themeManager.currentTheme.secondaryText)
+                .disabled(!hasUnsavedChanges)
+                .keyboardShortcut("s", modifiers: .command)
+                .help("保存 (⌘S)")
+
                 Text("\(editedContent.count) 字")
                     .font(.caption2)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
@@ -74,7 +87,10 @@ struct MDRendererView: View {
                     theme: themeManager.currentTheme,
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
-                    onSelection: onSelection
+                    hasUnsavedChanges: $hasUnsavedChanges,
+                    progress: $progress,
+                    onSelection: onSelection,
+                    onPageReady: onPageReady
                 )
             case .previewOnly:
                 MDPreviewView(
@@ -82,12 +98,25 @@ struct MDRendererView: View {
                     theme: themeManager.currentTheme,
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
-                    onSelection: onSelection
+                    progress: $progress,
+                    onSelection: onSelection,
+                    onPageReady: onPageReady
                 )
             }
         }
         .onAppear { loadContent() }
         .onChange(of: currentChapter) { _, _ in loadContent() }
+        .onChange(of: editedContent) { _, newValue in
+            hasUnsavedChanges = newValue != originalContent
+        }
+        .alert("保存失败", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("好") { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
+        }
     }
 
     private func loadContent() {
@@ -96,6 +125,19 @@ struct MDRendererView: View {
         originalContent = chapter.htmlContent
         editedContent = chapter.htmlContent
         hasUnsavedChanges = false
+    }
+
+    @MainActor
+    private func saveContent() {
+        do {
+            let url = URL(fileURLWithPath: book.filePath)
+            try editedContent.write(to: url, atomically: true, encoding: .utf8)
+            originalContent = editedContent
+            hasUnsavedChanges = false
+            storageService.updateBook(book)
+        } catch {
+            saveError = error.localizedDescription
+        }
     }
 
     private func layoutIcon(for mode: MDLayoutMode) -> String {
@@ -111,13 +153,16 @@ struct SplitView: View {
     let theme: AppTheme
     let fontSize: Double
     let lineHeight: Double
+    @Binding var hasUnsavedChanges: Bool
+    @Binding var progress: Double
     let onSelection: (String, CGRect) -> Void
+    let onPageReady: (() -> Void)?
 
     var body: some View {
         HSplitView {
             MDEditorView(
                 content: $content,
-                hasChanges: .constant(false),
+                hasChanges: $hasUnsavedChanges,
                 theme: theme,
                 fontSize: fontSize
             )
@@ -128,7 +173,9 @@ struct SplitView: View {
                 theme: theme,
                 fontSize: fontSize,
                 lineHeight: lineHeight,
-                onSelection: onSelection
+                progress: $progress,
+                onSelection: onSelection,
+                onPageReady: onPageReady
             )
             .frame(minWidth: 200)
         }
@@ -213,7 +260,9 @@ struct MDPreviewView: NSViewRepresentable {
     let theme: AppTheme
     let fontSize: Double
     let lineHeight: Double
+    @Binding var progress: Double
     let onSelection: (String, CGRect) -> Void
+    let onPageReady: (() -> Void)?
 
     private static let selectionJS = """
     (function() {
@@ -243,6 +292,91 @@ struct MDPreviewView: NSViewRepresentable {
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(sendSelection, 200);
       });
+
+      var scrollTimer = null;
+      window.addEventListener('scroll', function() {
+        if (scrollTimer) clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(function() {
+          try {
+            var scrollHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+            var p = scrollHeight > 0 ? window.scrollY / scrollHeight : 0;
+            p = Math.max(0, Math.min(1, p));
+            window.webkit.messageHandlers.readerBridge.postMessage({
+              type: 'progress',
+              progress: p
+            });
+          } catch(e) {}
+        }, 150);
+      });
+
+      window.ReaderRestoreProgress = function(progress) {
+        try {
+          var scrollHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+          var target = Math.max(0, Math.min(1, progress)) * scrollHeight;
+          window.scrollTo({ top: target, behavior: 'auto' });
+        } catch(e) {}
+      };
+
+      window.ReaderRestoreHighlights = function(highlights) {
+        try {
+          var existing = document.querySelectorAll('span[data-reader-highlight]');
+          existing.forEach(function(el) {
+            var parent = el.parentNode;
+            if (!parent) return;
+            parent.insertBefore(document.createTextNode(el.textContent || ''), el);
+            parent.removeChild(el);
+            parent.normalize();
+          });
+
+          if (!highlights || highlights.length === 0) return;
+
+          highlights.forEach(function(hl) {
+            var text = hl.text;
+            var color = hl.color;
+            if (!text || text.length === 0) return;
+            var className = 'reader-highlight-' + color;
+
+            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+            var node;
+            while (node = walker.nextNode()) {
+              var nodeText = node.nodeValue || '';
+              var idx = nodeText.indexOf(text);
+              if (idx < 0) continue;
+              try {
+                var range = document.createRange();
+                range.setStart(node, idx);
+                range.setEnd(node, idx + text.length);
+                var span = document.createElement('span');
+                span.className = className;
+                span.setAttribute('data-reader-highlight', 'true');
+                range.surroundContents(span);
+              } catch(e) {}
+            }
+          });
+        } catch(e) {}
+      };
+
+      window.ReaderScrollToHighlight = function(text) {
+        try {
+          if (!text) return;
+          var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+          var node;
+          while (node = walker.nextNode()) {
+            var nodeText = node.nodeValue || '';
+            var idx = nodeText.indexOf(text);
+            if (idx < 0) continue;
+            var range = document.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, idx + text.length);
+            var rect = range.getBoundingClientRect();
+            if (rect.width > 0 || rect.height > 0) {
+              var scrollTop = window.scrollY + rect.top - window.innerHeight / 3;
+              window.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' });
+            }
+            break;
+          }
+        } catch(e) {}
+      };
     })();
     """
 
@@ -256,8 +390,12 @@ struct MDPreviewView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
+        webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
         context.coordinator.startObservingHighlightRequests()
+        context.coordinator.startObservingRestoreProgress()
+        context.coordinator.startObservingRestoreHighlights()
+        context.coordinator.startObservingScrollToHighlight()
         return webView
     }
 
@@ -270,6 +408,9 @@ struct MDPreviewView: NSViewRepresentable {
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.stopObservingHighlightRequests()
+        coordinator.stopObservingRestoreProgress()
+        coordinator.stopObservingRestoreHighlights()
+        coordinator.stopObservingScrollToHighlight()
         coordinator.webView = nil
     }
 
@@ -370,10 +511,13 @@ struct MDPreviewView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    class Coordinator: NSObject, WKScriptMessageHandler {
+    class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var parent: MDPreviewView
         weak var webView: WKWebView?
         private var highlightObserver: NSObjectProtocol?
+        private var restoreProgressObserver: NSObjectProtocol?
+        private var restoreHighlightsObserver: NSObjectProtocol?
+        private var scrollToHighlightObserver: NSObjectProtocol?
 
         init(parent: MDPreviewView) {
             self.parent = parent
@@ -381,6 +525,15 @@ struct MDPreviewView: NSViewRepresentable {
 
         deinit {
             if let obs = highlightObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            if let obs = restoreProgressObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            if let obs = restoreHighlightsObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            if let obs = scrollToHighlightObserver {
                 NotificationCenter.default.removeObserver(obs)
             }
         }
@@ -405,6 +558,7 @@ struct MDPreviewView: NSViewRepresentable {
                         if (range.collapsed) return false;
                         var span = document.createElement('span');
                         span.className = '\(escaped)';
+                        span.setAttribute('data-reader-highlight', 'true');
                         range.surroundContents(span);
                         sel.removeAllRanges();
                         return true;
@@ -423,23 +577,116 @@ struct MDPreviewView: NSViewRepresentable {
             }
         }
 
+        func startObservingRestoreProgress() {
+            guard restoreProgressObserver == nil else { return }
+            restoreProgressObserver = NotificationCenter.default.addObserver(
+                forName: .epubRestoreProgress,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let progress = notification.userInfo?["progress"] as? Double else { return }
+                self.webView?.evaluateJavaScript(
+                    "window.ReaderRestoreProgress && window.ReaderRestoreProgress(\(progress));",
+                    completionHandler: nil
+                )
+            }
+        }
+
+        func stopObservingRestoreProgress() {
+            if let obs = restoreProgressObserver {
+                NotificationCenter.default.removeObserver(obs)
+                restoreProgressObserver = nil
+            }
+        }
+
+        func startObservingRestoreHighlights() {
+            guard restoreHighlightsObserver == nil else { return }
+            restoreHighlightsObserver = NotificationCenter.default.addObserver(
+                forName: .restoreHighlights,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let highlights = notification.userInfo?["highlights"] as? [Highlight] else { return }
+                let data = highlights.compactMap { hl -> [String: String]? in
+                    guard !hl.selectedText.isEmpty else { return nil }
+                    return ["text": hl.selectedText, "color": hl.color.rawValue]
+                }
+                guard !data.isEmpty,
+                      let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                      let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+                let escaped = jsonString.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+                self.webView?.evaluateJavaScript(
+                    "window.ReaderRestoreHighlights && window.ReaderRestoreHighlights(JSON.parse('\(escaped)'));",
+                    completionHandler: nil
+                )
+            }
+        }
+
+        func stopObservingRestoreHighlights() {
+            if let obs = restoreHighlightsObserver {
+                NotificationCenter.default.removeObserver(obs)
+                restoreHighlightsObserver = nil
+            }
+        }
+
+        func startObservingScrollToHighlight() {
+            guard scrollToHighlightObserver == nil else { return }
+            scrollToHighlightObserver = NotificationCenter.default.addObserver(
+                forName: .scrollToHighlight,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let text = notification.userInfo?["text"] as? String else { return }
+                let escaped = text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+                self.webView?.evaluateJavaScript(
+                    "window.ReaderScrollToHighlight && window.ReaderScrollToHighlight('\(escaped)');",
+                    completionHandler: nil
+                )
+            }
+        }
+
+        func stopObservingScrollToHighlight() {
+            if let obs = scrollToHighlightObserver {
+                NotificationCenter.default.removeObserver(obs)
+                scrollToHighlightObserver = nil
+            }
+        }
+
         func userContentController(
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
             guard let body = message.body as? [String: Any],
-                  let type = body["type"] as? String,
-                  type == "selection" else { return }
-            guard let text = body["text"] as? String, !text.isEmpty else { return }
-            let rect = CGRect(
-                x: body["x"] as? Double ?? 0,
-                y: body["y"] as? Double ?? 0,
-                width: body["width"] as? Double ?? 0,
-                height: body["height"] as? Double ?? 0
-            )
-            Task { @MainActor in
-                parent.onSelection(text, rect)
+                  let type = body["type"] as? String else { return }
+
+            switch type {
+            case "selection":
+                guard let text = body["text"] as? String, !text.isEmpty else { return }
+                let rect = CGRect(
+                    x: body["x"] as? Double ?? 0,
+                    y: body["y"] as? Double ?? 0,
+                    width: body["width"] as? Double ?? 0,
+                    height: body["height"] as? Double ?? 0
+                )
+                Task { @MainActor in
+                    parent.onSelection(text, rect)
+                }
+            case "progress":
+                if let p = body["progress"] as? Double {
+                    Task { @MainActor in
+                        parent.progress = p
+                    }
+                }
+            default:
+                break
             }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.onPageReady?()
         }
     }
 }

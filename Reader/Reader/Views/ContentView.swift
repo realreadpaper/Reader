@@ -40,20 +40,44 @@ struct ContentView: View {
                             library: library,
                             selectedBook: $selectedBook,
                             onRequestImport: { showImportPicker = true },
+                            onToggleSidebar: { withAnimation { showSidebar = false } },
                             importError: $importError
                         )
                         .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
                     }
 
-                    if let book = selectedBook {
-                        ReaderView(
-                            book: book,
-                            storageService: storageService,
-                            library: library
-                        )
-                        .id(ReaderViewIdentity.id(for: book))
-                    } else {
-                        WelcomeView()
+                    ZStack {
+                        if let book = selectedBook {
+                            ReaderView(
+                                book: book,
+                                storageService: storageService,
+                                library: library
+                            )
+                            .id(ReaderViewIdentity.id(for: book))
+                        } else {
+                            WelcomeView()
+                        }
+
+                        if !showSidebar {
+                            VStack {
+                                HStack {
+                                    Button(action: { withAnimation { showSidebar = true } }) {
+                                        Image(systemName: "sidebar.left")
+                                            .font(.system(size: 14))
+                                            .foregroundStyle(.secondary)
+                                            .padding(8)
+                                            .background(.ultraThinMaterial)
+                                            .cornerRadius(6)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("展开书架 (⇧⌘S)")
+                                    .padding(.leading, 8)
+                                    .padding(.top, 8)
+                                    Spacer()
+                                }
+                                Spacer()
+                            }
+                        }
                     }
                 }
             } else {

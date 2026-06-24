@@ -77,6 +77,12 @@ final class SearchPanelLayoutTests: XCTestCase {
         XCTAssertTrue(EPUBScripts.bootScript.contains("keydown"))
     }
 
+    func testEPUBPagingScriptRealignsPageAfterViewportResize() {
+        XCTAssertTrue(EPUBScripts.bootScript.contains("lastReportedPage"))
+        XCTAssertTrue(EPUBScripts.bootScript.contains("realignAfterResize"))
+        XCTAssertTrue(EPUBScripts.bootScript.contains("ResizeObserver"))
+    }
+
     func testReaderPositionLabelUsesPagesForAllFormats() {
         XCTAssertEqual(
             ReaderPositionLabel.text(currentPage: 3, total: 9),
@@ -92,6 +98,12 @@ final class SearchPanelLayoutTests: XCTestCase {
         )
     }
 
+    func testTOCStyleUsesOpaqueThemeBackgroundAndReadableText() {
+        XCTAssertEqual(TOCStyle.backgroundHex(for: .kraft), "#E8DCC8")
+        XCTAssertEqual(TOCStyle.primaryTextHex(for: .kraft), "#1A1208")
+        XCTAssertEqual(TOCStyle.secondaryTextHex(for: .night), "#C0B090")
+    }
+
     func testReaderNavigationPositionStoresPDFBookmarksAsZeroBasedPageIndexes() {
         let position = ReaderNavigationPosition.bookmarkPosition(
             fileType: .pdf,
@@ -102,6 +114,16 @@ final class SearchPanelLayoutTests: XCTestCase {
 
         XCTAssertEqual(position, "pdfPage:2")
         XCTAssertEqual(ReaderNavigationPosition.parse(position), .pdfPage(2))
+    }
+
+    func testReaderNavigationPositionStoresHighlightEndAfterSelectedText() {
+        let range = ReaderNavigationPosition.highlightRange(
+            startOffset: 2_000_000,
+            selectedText: "简单的逻辑学"
+        )
+
+        XCTAssertEqual(range.start, 2_000_000)
+        XCTAssertEqual(range.end, 2_000_006)
     }
 
     func testReaderNavigationPositionParsesLegacyPDFBookmarksAsOneBasedPages() {

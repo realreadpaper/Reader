@@ -26,6 +26,11 @@ enum ReaderNavigationTarget: Equatable {
 }
 
 enum ReaderNavigationPosition {
+    static func highlightRange(startOffset: Int, selectedText: String) -> (start: Int, end: Int) {
+        let start = max(0, startOffset)
+        return (start, start + selectedText.count)
+    }
+
     static func bookmarkPosition(
         fileType: FileType,
         currentChapter: Int,
