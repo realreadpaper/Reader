@@ -42,30 +42,30 @@ struct ReaderView: View {
                     onBookmarkAdded: { annotationRefreshToken = UUID() }
                 )
 
-                ZStack(alignment: .leading) {
-                    mainRenderer
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(themeManager.currentTheme.contentBG)
-                        .overlay(alignment: .top) {
-                            if coordinator.isLoading {
-                                LoadingOverlay()
-                            }
-                        }
-
+                HStack(spacing: 0) {
                     if coordinator.showTOC {
-                        TOCPanelOverlay(
+                        EmbeddedTOCPanel(
                             chapters: coordinator.tocEntries.map { ($0.title, $0.chapterIndex) },
                             currentIndex: book.fileType == .pdf
                                 ? coordinator.pdfCurrentPage - 1
                                 : coordinator.currentChapter,
                             onChapterSelect: { chapterIndex in
                                 coordinator.navigateToChapter(chapterIndex)
-                                coordinator.showTOC = false
-                            },
-                            onClose: { coordinator.showTOC = false }
+                            }
                         )
+                        .frame(width: 220)
                         .transition(.move(edge: .leading).combined(with: .opacity))
-                        .zIndex(4)
+                    }
+
+                    ReaderPaperContainer {
+                        mainRenderer
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(themeManager.currentTheme.contentBG)
+                            .overlay(alignment: .top) {
+                                if coordinator.isLoading {
+                                    LoadingOverlay()
+                                }
+                            }
                     }
                 }
 
@@ -357,6 +357,34 @@ enum SearchResultTarget {
 
 // MARK: - Loading
 
+struct ReaderPaperContainer<Content: View>: View {
+    @Environment(ThemeManager.self) private var themeManager
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(themeManager.currentTheme.contentBG)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(themeManager.currentTheme.border.opacity(0.9), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(themeManager.currentTheme.sidebarBG.opacity(0.35))
+    }
+}
+
 struct LoadingOverlay: View {
     @Environment(ThemeManager.self) private var themeManager
     var body: some View {
@@ -420,31 +448,30 @@ struct SearchPanelOverlay: View {
     }
 }
 
-// MARK: - TOC overlay
+// MARK: - TOC panel
 
-struct TOCPanelOverlay: View {
+struct EmbeddedTOCPanel: View {
     let chapters: [(title: String, chapterIndex: Int)]
     let currentIndex: Int
     let onChapterSelect: (Int) -> Void
-    let onClose: () -> Void
 
     @Environment(ThemeManager.self) private var themeManager
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Color.black.opacity(0.01)
-                .onTapGesture { onClose() }
-
+        VStack(spacing: 0) {
             TOCView(
                 chapters: chapters,
                 onChapterSelect: onChapterSelect,
                 showPageNumbers: true,
                 currentIndex: currentIndex
             )
-            .frame(width: 220)
             .frame(maxHeight: .infinity)
-            .background(TOCStyle.background(for: themeManager.currentTheme))
-            .shadow(color: .black.opacity(0.15), radius: 8)
+        }
+        .background(TOCStyle.background(for: themeManager.currentTheme))
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(themeManager.currentTheme.border)
+                .frame(width: 1)
         }
     }
 }

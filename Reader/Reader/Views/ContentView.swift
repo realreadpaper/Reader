@@ -25,6 +25,7 @@ struct ContentView: View {
 
     @State private var selectedBook: Book?
     @State private var showSidebar = true
+    @State private var sidebarWidth: CGFloat = 220
     @State private var storageService: StorageService?
     @State private var library: BookLibrary?
     @State private var importError: String?
@@ -33,53 +34,26 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let storageService, let library {
-                HSplitView {
-                    if showSidebar {
-                        SidebarView(
+                HStack(spacing: 0) {
+                    sidebarPane(
+                        storageService: storageService,
+                        library: library
+                    )
+
+                    if let book = selectedBook {
+                        ReaderView(
+                            book: book,
                             storageService: storageService,
-                            library: library,
-                            selectedBook: $selectedBook,
-                            onRequestImport: { showImportPicker = true },
-                            onToggleSidebar: { withAnimation { showSidebar = false } },
-                            importError: $importError
+                            library: library
                         )
-                        .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
-                    }
-
-                    ZStack {
-                        if let book = selectedBook {
-                            ReaderView(
-                                book: book,
-                                storageService: storageService,
-                                library: library
-                            )
-                            .id(ReaderViewIdentity.id(for: book))
-                        } else {
-                            WelcomeView()
-                        }
-
-                        if !showSidebar {
-                            VStack {
-                                HStack {
-                                    Button(action: { withAnimation { showSidebar = true } }) {
-                                        Image(systemName: "sidebar.left")
-                                            .font(.system(size: 14))
-                                            .foregroundStyle(.secondary)
-                                            .padding(8)
-                                            .background(.ultraThinMaterial)
-                                            .cornerRadius(6)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("展开书架 (⇧⌘S)")
-                                    .padding(.leading, 8)
-                                    .padding(.top, 8)
-                                    Spacer()
-                                }
-                                Spacer()
-                            }
-                        }
+                        .id(ReaderViewIdentity.id(for: book))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        WelcomeView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+                .background(themeManager.currentTheme.contentBG)
             } else {
                 LoadingView()
             }
@@ -109,7 +83,7 @@ struct ContentView: View {
         .background(
             // 隐藏按钮承载全局快捷键
             Group {
-                Button("Toggle Sidebar") { showSidebar.toggle() }
+                Button("Toggle Sidebar") { toggleSidebar() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                 Button("Import") { showImportPicker = true }
                     .keyboardShortcut("o", modifiers: .command)
@@ -117,6 +91,44 @@ struct ContentView: View {
             .opacity(0)
             .frame(width: 0, height: 0)
         )
+    }
+
+    @ViewBuilder
+    private func sidebarPane(storageService: StorageService, library: BookLibrary) -> some View {
+        if showSidebar {
+            HStack(spacing: 0) {
+                SidebarView(
+                    storageService: storageService,
+                    library: library,
+                    selectedBook: $selectedBook,
+                    onRequestImport: { showImportPicker = true },
+                    onToggleSidebar: { collapseSidebar() },
+                    importError: $importError
+                )
+
+                SidebarResizeHandle(width: $sidebarWidth)
+            }
+            .frame(width: sidebarWidth)
+        } else {
+            CollapsedSidebarRail(onExpand: { expandSidebar() })
+                .frame(width: 44)
+        }
+    }
+
+    private func toggleSidebar() {
+        showSidebar ? collapseSidebar() : expandSidebar()
+    }
+
+    private func collapseSidebar() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showSidebar = false
+        }
+    }
+
+    private func expandSidebar() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showSidebar = true
+        }
     }
 
     @MainActor
@@ -133,6 +145,66 @@ struct ContentView: View {
         case .failure(let error):
             importError = error.localizedDescription
         }
+    }
+}
+
+private struct CollapsedSidebarRail: View {
+    let onExpand: () -> Void
+    @Environment(ThemeManager.self) private var themeManager
+
+    var body: some View {
+        VStack {
+            Button(action: onExpand) {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(themeManager.currentTheme.sidebarBG.opacity(0.94))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(themeManager.currentTheme.border.opacity(0.8), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("展开书架 (⇧⌘S)")
+            .padding(.top, 10)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(themeManager.currentTheme.sidebarBG)
+    }
+}
+
+private struct SidebarResizeHandle: View {
+    @Binding var width: CGFloat
+    @Environment(ThemeManager.self) private var themeManager
+    @State private var dragStartWidth: CGFloat?
+
+    var body: some View {
+        Rectangle()
+            .fill(themeManager.currentTheme.border.opacity(0.7))
+            .frame(width: 1)
+            .overlay(
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: 8)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let startWidth = dragStartWidth ?? width
+                                dragStartWidth = startWidth
+                                width = min(280, max(200, startWidth + value.translation.width))
+                            }
+                            .onEnded { _ in
+                                dragStartWidth = nil
+                            }
+                    )
+            )
     }
 }
 
