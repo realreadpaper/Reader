@@ -25,18 +25,15 @@ final class MOBIHeaderTests: XCTestCase {
         XCTAssertEqual(header.variant, .kf8)
     }
 
-    func testReadHUFFReturnsUnsupported() throws {
+    func testReadHUFFKeepsNativeClassicVariant() throws {
         let record0 = makeRecord0(
             compression: 17480,
             mobiVersion: 6,
             exthRecords: []
         )
         let header = try MOBIHeader.read(record0: record0)
-        if case .unsupported(let reason) = header.variant {
-            XCTAssertTrue(reason.contains("HUFF"))
-        } else {
-            XCTFail("应为 unsupported")
-        }
+        XCTAssertEqual(header.variant, .classicMOBI)
+        XCTAssertEqual(header.compression, .huff)
     }
 
     private func makeRecord0(

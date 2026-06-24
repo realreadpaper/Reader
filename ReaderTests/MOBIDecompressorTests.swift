@@ -26,14 +26,16 @@ final class MOBIDecompressorTests: XCTestCase {
         XCTAssertEqual(String(data: output, encoding: .ascii), " H i")
     }
 
-    func testHuffThrowsUnsupported() {
+    func testHuffRequiresDictionaryRecords() {
         XCTAssertThrowsError(
             try MOBIDecompressor.decompress(Data([0x00]), compression: .huff)
         ) { error in
-            guard case BookParseError.unsupportedFormat = error else {
+            guard case BookParseError.corruptedFile(let detail) = error else {
                 XCTFail("错误类型不对：\(error)")
                 return
             }
+            XCTAssertTrue(detail.contains("HUFF/CDIC"))
+            XCTAssertTrue(detail.contains("dictionary"))
         }
     }
 }

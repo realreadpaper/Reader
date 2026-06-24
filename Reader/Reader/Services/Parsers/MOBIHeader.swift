@@ -116,11 +116,9 @@ struct MOBIHeader {
         }
 
         let variant: MOBIVariant
-        if compression == .huff {
-            variant = .unsupported("HUFF/CDIC 压缩暂未原生实现")
-        } else if mobiVersion == 8 {
+        if mobiVersion == 8 {
             variant = .kf8
-        } else if [0, 1, 2].contains(compressionRaw) {
+        } else if [0, 1, 2, 17480].contains(compressionRaw) {
             variant = .classicMOBI
         } else {
             variant = .unsupported("未知 MOBI 变体（compression=\(compressionRaw), version=\(mobiVersion)）")

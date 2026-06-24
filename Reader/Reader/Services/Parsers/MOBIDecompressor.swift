@@ -2,13 +2,24 @@ import Foundation
 
 enum MOBIDecompressor {
     static func decompress(_ data: Data, compression: MOBICompression) throws -> Data {
+        try decompress(data, compression: compression, huffDecoder: nil)
+    }
+
+    static func decompress(
+        _ data: Data,
+        compression: MOBICompression,
+        huffDecoder: HUFFCDICDecoder?
+    ) throws -> Data {
         switch compression {
         case .none:
             return data
         case .palmDoc:
             return decompressPalmDoc(data)
         case .huff:
-            throw BookParseError.unsupportedFormat(detail: "HUFF/CDIC 压缩暂未实现")
+            guard let huffDecoder else {
+                throw BookParseError.corruptedFile(detail: "HUFF/CDIC dictionary missing")
+            }
+            return try huffDecoder.decompress(data)
         }
     }
 

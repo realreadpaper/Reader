@@ -24,6 +24,7 @@
 		3E5E86C2158F0BB8E92DA81F /* AppIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = D3F26FD9F4E970046378120F /* AppIcon.png */; };
 		40B95765B1E4C6986627BB78 /* AppIcon.svg in Resources */ = {isa = PBXBuildFile; fileRef = AB030714E5315872BC2F2305 /* AppIcon.svg */; };
 		44E3AC80FC730E3F0B671071 /* KF8IndexReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56E82FC768945A940554D9B2 /* KF8IndexReader.swift */; };
+		45F0CF6A0A0F4D8D8F5E8E81 /* HUFFCDICDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F0CF690A0F4D8D8F5E8E81 /* HUFFCDICDecoder.swift */; };
 		4BE7DEEF98DF999F5FD45A79 /* TXTParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCD01AF0EC52A60914E63BBC /* TXTParser.swift */; };
 		4FB5DD142CE5F584F1A87FE2 /* PDFRendererView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42EF1DAD93B93180D3D018E3 /* PDFRendererView.swift */; };
 		50CE384F9393D6501653983D /* SearchPanelLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 748B97F5199C987AB12435BF /* SearchPanelLayoutTests.swift */; };
@@ -93,6 +94,7 @@
 		3A8F818139190B6BDBC6C685 /* PalmDBReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PalmDBReaderTests.swift; sourceTree = "<group>"; };
 		42EF1DAD93B93180D3D018E3 /* PDFRendererView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFRendererView.swift; sourceTree = "<group>"; };
 		49B6016966AE1BD3B8E6AF53 /* KF8IndexReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KF8IndexReaderTests.swift; sourceTree = "<group>"; };
+		45F0CF690A0F4D8D8F5E8E81 /* HUFFCDICDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUFFCDICDecoder.swift; sourceTree = "<group>"; };
 		5618AF8A636FC27AA2863635 /* PDFParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFParser.swift; sourceTree = "<group>"; };
 		56E82FC768945A940554D9B2 /* KF8IndexReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KF8IndexReader.swift; sourceTree = "<group>"; };
 		57D187DF0961D564E88FEF3D /* MDParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDParser.swift; sourceTree = "<group>"; };
@@ -195,6 +197,7 @@
 			isa = PBXGroup;
 			children = (
 				20B29EB0981B48E9BA8B42B4 /* BookParser.swift */,
+				45F0CF690A0F4D8D8F5E8E81 /* HUFFCDICDecoder.swift */,
 				56E82FC768945A940554D9B2 /* KF8IndexReader.swift */,
 				57D187DF0961D564E88FEF3D /* MDParser.swift */,
 				60D918080FC8F427BF61C2A2 /* MOBIDecompressor.swift */,
@@ -456,6 +459,7 @@
 				D78E45EFBBD8FB07225B99DF /* FontPanelView.swift in Sources */,
 				6DADA85A7CF7DE84121775B7 /* Highlight.swift in Sources */,
 				B67A9F13C435E006DD5303BD /* HighlightMenuView.swift in Sources */,
+				45F0CF6A0A0F4D8D8F5E8E81 /* HUFFCDICDecoder.swift in Sources */,
 				44E3AC80FC730E3F0B671071 /* KF8IndexReader.swift in Sources */,
 				2C635A1D3A47D2263B274F95 /* MDParser.swift in Sources */,
 				BA12B882BC281E1ACD5228C4 /* MDRendererView.swift in Sources */,

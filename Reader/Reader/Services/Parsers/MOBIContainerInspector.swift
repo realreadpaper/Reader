@@ -111,13 +111,10 @@ enum MOBIContainerInspector {
         }()
         let kf8BoundaryRecordIndex = findKF8Boundary(in: pdb.records)
         let variant: MOBIVariant = {
-            if compression == .huff {
-                return .unsupported("HUFF/CDIC 压缩暂未原生实现")
-            }
             if mobiVersion == 8 || kf8BoundaryRecordIndex != nil {
                 return .kf8
             }
-            if [0, 1, 2].contains(compressionRaw) {
+            if [0, 1, 2, 17480].contains(compressionRaw) {
                 return .classicMOBI
             }
             return .unsupported("未知 MOBI 变体（compression=\(compressionRaw), version=\(mobiVersion)）")

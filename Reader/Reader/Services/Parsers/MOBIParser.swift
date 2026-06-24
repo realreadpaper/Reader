@@ -89,10 +89,17 @@ final class MOBIParser: BookParser {
             throw BookParseError.corruptedFile(detail: "text record 范围非法 first=\(first) last=\(last) total=\(pdb.records.count)")
         }
 
+        let huffDecoder: HUFFCDICDecoder?
+        if header.compression == .huff {
+            huffDecoder = try HUFFCDICDecoder(records: Array(pdb.records.dropFirst(last + 1)))
+        } else {
+            huffDecoder = nil
+        }
+
         var raw = Data()
         for i in first...last {
             let record = pdb.records[i]
-            let decompressed = try MOBIDecompressor.decompress(record, compression: header.compression)
+            let decompressed = try MOBIDecompressor.decompress(record, compression: header.compression, huffDecoder: huffDecoder)
             let part = stripTrailingExtraData(from: decompressed, flags: header.extraDataFlags)
             raw.append(part)
         }
