@@ -20,6 +20,57 @@ enum EPUBProgressPolicy {
     }
 }
 
+enum ReaderNavigationTarget: Equatable {
+    case pdfPage(Int)
+    case pagedContent(chapterIndex: Int, progress: Double?)
+}
+
+enum ReaderNavigationPosition {
+    static func bookmarkPosition(
+        fileType: FileType,
+        currentChapter: Int,
+        pdfCurrentPage: Int,
+        progress: Double
+    ) -> String {
+        switch fileType {
+        case .pdf:
+            return "pdfPage:\(max(0, pdfCurrentPage - 1))"
+        case .epub, .mobi, .txt, .md:
+            return "\(fileType.rawValue):\(max(0, currentChapter)):\(max(0, min(1, progress)))"
+        }
+    }
+
+    static func highlightStartOffset(
+        fileType: FileType,
+        currentChapter: Int,
+        pdfCurrentPage: Int
+    ) -> Int {
+        switch fileType {
+        case .pdf:
+            return max(0, pdfCurrentPage - 1) * 1_000_000
+        case .epub, .mobi, .txt, .md:
+            return max(0, currentChapter) * 1_000_000
+        }
+    }
+
+    static func parse(_ position: String) -> ReaderNavigationTarget? {
+        let parts = position.split(separator: ":").map(String.init)
+        guard parts.count >= 2, let index = Int(parts[1]) else { return nil }
+
+        switch parts[0] {
+        case "pdfPage":
+            return .pdfPage(max(0, index))
+        case "pdf":
+            return .pdfPage(max(0, index - 1))
+        case "epub", "mobi", "txt", "md":
+            let progress = parts.count >= 3 ? Double(parts[2]) : nil
+            return .pagedContent(chapterIndex: max(0, index), progress: progress)
+        default:
+            return nil
+        }
+    }
+}
+
 struct BottomBarView: View {
     let book: Book
     let coordinator: RenderCoordinator

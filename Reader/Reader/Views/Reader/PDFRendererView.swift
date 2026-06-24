@@ -5,6 +5,7 @@ struct PDFRendererView: View {
     let book: Book
     let coordinator: RenderCoordinator
     let settings: ReaderSettings
+    let onSelection: (String, CGRect) -> Void
 
     @Environment(ThemeManager.self) private var themeManager
 
@@ -15,7 +16,9 @@ struct PDFRendererView: View {
             coordinator: coordinator,
             targetPageIndex: coordinator.pdfCurrentPage - 1,
             theme: themeManager.currentTheme,
-            filterEnabled: settings.pdfFilterEnabled
+            filterEnabled: settings.pdfFilterEnabled,
+            scaleFactor: settings.fontSize / 16.0,
+            onSelection: onSelection
         )
     }
 }

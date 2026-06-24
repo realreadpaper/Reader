@@ -92,6 +92,38 @@ final class SearchPanelLayoutTests: XCTestCase {
         )
     }
 
+    func testReaderNavigationPositionStoresPDFBookmarksAsZeroBasedPageIndexes() {
+        let position = ReaderNavigationPosition.bookmarkPosition(
+            fileType: .pdf,
+            currentChapter: 0,
+            pdfCurrentPage: 3,
+            progress: 0.3
+        )
+
+        XCTAssertEqual(position, "pdfPage:2")
+        XCTAssertEqual(ReaderNavigationPosition.parse(position), .pdfPage(2))
+    }
+
+    func testReaderNavigationPositionParsesLegacyPDFBookmarksAsOneBasedPages() {
+        XCTAssertEqual(ReaderNavigationPosition.parse("pdf:1"), .pdfPage(0))
+        XCTAssertEqual(ReaderNavigationPosition.parse("pdf:3"), .pdfPage(2))
+    }
+
+    func testReaderNavigationPositionStoresPagedFormatsWithChapterAndProgress() {
+        let position = ReaderNavigationPosition.bookmarkPosition(
+            fileType: .epub,
+            currentChapter: 4,
+            pdfCurrentPage: 0,
+            progress: 0.42
+        )
+
+        XCTAssertEqual(position, "epub:4:0.42")
+        XCTAssertEqual(
+            ReaderNavigationPosition.parse(position),
+            .pagedContent(chapterIndex: 4, progress: 0.42)
+        )
+    }
+
     @MainActor
     func testEPUBSearchDecodesHTMLEntitiesAndIgnoresHiddenMarkup() async throws {
         let container = try ModelContainer(

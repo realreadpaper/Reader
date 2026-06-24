@@ -88,6 +88,7 @@ struct ReaderView: View {
             if coordinator.showFontPanel {
                 FontPanelOverlay(
                     settings: settings,
+                    fileType: book.fileType,
                     onClose: { coordinator.showFontPanel = false }
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -109,9 +110,11 @@ struct ReaderView: View {
                     highlights: storageService.fetchHighlights(for: book),
                     bookmarks: storageService.fetchBookmarks(for: book),
                     onClose: { coordinator.showAnnotations = false },
+                    onHighlightSelect: { navigateToHighlight($0) },
                     onHighlightDelete: { highlight in
                         storageService.deleteHighlight(highlight)
                     },
+                    onBookmarkSelect: { navigateToBookmark($0) },
                     onBookmarkDelete: { bookmark in
                         storageService.deleteBookmark(bookmark)
                     }
@@ -188,7 +191,14 @@ struct ReaderView: View {
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
             }
         case .pdf:
-            PDFRendererView(book: book, coordinator: coordinator, settings: settings)
+            PDFRendererView(
+                book: book,
+                coordinator: coordinator,
+                settings: settings,
+                onSelection: { text, rect in
+                    handleSelection(text: text, rect: rect)
+                }
+            )
         case .txt:
             if !coordinator.chapters.isEmpty {
                 TXTRendererView(
@@ -196,7 +206,11 @@ struct ReaderView: View {
                     chapters: coordinator.chapters,
                     currentChapter: $coordinator.currentChapter,
                     progress: $coordinator.progress,
-                    themeManager: themeManager
+                    themeManager: themeManager,
+                    settings: settings,
+                    onSelection: { text, rect in
+                        handleSelection(text: text, rect: rect)
+                    }
                 )
             } else {
                 Text("加载中...")
@@ -210,7 +224,11 @@ struct ReaderView: View {
                     currentChapter: $coordinator.currentChapter,
                     progress: $coordinator.progress,
                     themeManager: themeManager,
-                    storageService: storageService
+                    storageService: storageService,
+                    settings: settings,
+                    onSelection: { text, rect in
+                        handleSelection(text: text, rect: rect)
+                    }
                 )
             } else {
                 Text("加载中...")
@@ -239,8 +257,11 @@ struct ReaderView: View {
     @MainActor
     private func handleHighlight(_ color: HighlightColor, info: SelectionInfo) {
         let chapterTitle = coordinator.currentTitle
-        let chapter = coordinator.currentChapter
-        let offsetBase = chapter * 1_000_000
+        let offsetBase = ReaderNavigationPosition.highlightStartOffset(
+            fileType: book.fileType,
+            currentChapter: coordinator.currentChapter,
+            pdfCurrentPage: coordinator.pdfCurrentPage
+        )
 
         _ = storageService.addHighlight(
             to: book,
@@ -266,6 +287,49 @@ struct ReaderView: View {
             object: nil,
             userInfo: ["className": className]
         )
+    }
+
+    @MainActor
+    private func navigateToBookmark(_ bookmark: Bookmark) {
+        coordinator.showAnnotations = false
+        guard let target = ReaderNavigationPosition.parse(bookmark.position) else { return }
+
+        switch target {
+        case .pdfPage(let pageIndex):
+            coordinator.navigateToChapter(pageIndex)
+        case .pagedContent(let chapterIndex, let progress):
+            coordinator.navigateToChapter(chapterIndex)
+            if let progress {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    NotificationCenter.default.post(
+                        name: .epubRestoreProgress,
+                        object: nil,
+                        userInfo: ["progress": progress]
+                    )
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func navigateToHighlight(_ highlight: Highlight) {
+        coordinator.showAnnotations = false
+        switch book.fileType {
+        case .pdf:
+            // For PDF, startOffset encodes the page index: chapter * 1_000_000 + offset
+            let pageIndex = highlight.startOffset / 1_000_000
+            coordinator.navigateToChapter(pageIndex)
+        case .epub, .mobi, .txt, .md:
+            if let chapterStr = highlight.chapter,
+               let chapterIndex = coordinator.tocEntries.firstIndex(where: { $0.title == chapterStr }) {
+                coordinator.navigateToChapter(chapterIndex)
+            } else {
+                let chapterIndex = highlight.startOffset / 1_000_000
+                if chapterIndex >= 0 && chapterIndex < coordinator.chapters.count {
+                    coordinator.navigateToChapter(chapterIndex)
+                }
+            }
+        }
     }
 
     @MainActor
@@ -312,6 +376,7 @@ struct LoadingOverlay: View {
 
 struct FontPanelOverlay: View {
     @Bindable var settings: ReaderSettings
+    let fileType: FileType
     let onClose: () -> Void
 
     var body: some View {
@@ -323,6 +388,7 @@ struct FontPanelOverlay: View {
                 lineHeight: $settings.lineHeight,
                 selectedTheme: .constant(.kraft),
                 pdfFilterEnabled: $settings.pdfFilterEnabled,
+                fileType: fileType,
                 onClose: onClose
             )
             .frame(maxHeight: .infinity, alignment: .top)
@@ -360,7 +426,9 @@ struct AnnotationPanelOverlay: View {
     let highlights: [Highlight]
     let bookmarks: [Bookmark]
     let onClose: () -> Void
+    let onHighlightSelect: (Highlight) -> Void
     let onHighlightDelete: (Highlight) -> Void
+    let onBookmarkSelect: (Bookmark) -> Void
     let onBookmarkDelete: (Bookmark) -> Void
 
     @Environment(ThemeManager.self) private var themeManager
@@ -389,14 +457,14 @@ struct AnnotationPanelOverlay: View {
                     if highlights.isEmpty {
                         EmptyStateView(text: "暂无高亮")
                     } else {
-                        AnnotationView(highlights: highlights, onHighlightSelect: { _ in })
+                        AnnotationView(highlights: highlights, onHighlightSelect: onHighlightSelect)
                             .frame(maxHeight: .infinity)
                     }
                 case .bookmarks:
                     if bookmarks.isEmpty {
                         EmptyStateView(text: "暂无书签")
                     } else {
-                        BookmarkListView(bookmarks: bookmarks, onSelect: { _ in }, onDelete: onBookmarkDelete)
+                        BookmarkListView(bookmarks: bookmarks, onSelect: onBookmarkSelect, onDelete: onBookmarkDelete)
                             .frame(maxHeight: .infinity)
                     }
                 }
@@ -435,16 +503,21 @@ struct BookmarkListView: View {
         List {
             ForEach(bookmarks, id: \.id) { bookmark in
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(bookmark.chapter ?? "未知页")
-                            .font(.subheadline)
-                            .foregroundStyle(themeManager.currentTheme.primaryText)
-                        Text(bookmark.note ?? bookmark.position)
-                            .font(.caption)
-                            .foregroundStyle(themeManager.currentTheme.secondaryText)
-                            .lineLimit(2)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(bookmark.chapter ?? "未知页")
+                                .font(.subheadline)
+                                .foregroundStyle(themeManager.currentTheme.primaryText)
+                            Text(bookmark.note ?? bookmark.position)
+                                .font(.caption)
+                                .foregroundStyle(themeManager.currentTheme.secondaryText)
+                                .lineLimit(2)
+                        }
+                        Spacer()
                     }
-                    Spacer()
+                    .contentShape(Rectangle())
+                    .onTapGesture { onSelect(bookmark) }
+
                     Button(action: { onDelete(bookmark) }) {
                         Image(systemName: "trash")
                             .foregroundStyle(.red.opacity(0.7))
@@ -463,4 +536,5 @@ struct BookmarkListView: View {
 extension Notification.Name {
     static let applyHighlightRequest = Notification.Name("applyHighlightRequest")
     static let epubSearchRequest = Notification.Name("epubSearchRequest")
+    static let epubRestoreProgress = Notification.Name("epubRestoreProgress")
 }

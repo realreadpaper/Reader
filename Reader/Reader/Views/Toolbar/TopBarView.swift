@@ -85,12 +85,12 @@ struct TopBarView: View {
 
     @MainActor
     private func addBookmark() {
-        let position: String
-        if book.fileType == .pdf {
-            position = "pdf:\(coordinator.pdfCurrentPage)"
-        } else {
-            position = "epub:\(coordinator.currentChapter):\(coordinator.progress)"
-        }
+        let position = ReaderNavigationPosition.bookmarkPosition(
+            fileType: book.fileType,
+            currentChapter: coordinator.currentChapter,
+            pdfCurrentPage: coordinator.pdfCurrentPage,
+            progress: coordinator.progress
+        )
         _ = storageService.addBookmark(
             to: book,
             position: position,

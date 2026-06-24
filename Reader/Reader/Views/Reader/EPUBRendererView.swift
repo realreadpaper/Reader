@@ -69,6 +69,7 @@ struct EPUBWebView: NSViewRepresentable {
         context.coordinator.webView = webView
         context.coordinator.startObservingHighlightRequests()
         context.coordinator.startObservingSearchRequests()
+        context.coordinator.startObservingRestoreProgress()
 
         if !chapters.isEmpty {
             context.coordinator.loadBook(
@@ -107,6 +108,7 @@ struct EPUBWebView: NSViewRepresentable {
     static func dismantleNSView(_ webView: WKWebView, coordinator: EPUBWebView.Coordinator) {
         coordinator.stopObservingHighlightRequests()
         coordinator.stopObservingSearchRequests()
+        coordinator.stopObservingRestoreProgress()
         coordinator.webView = nil
     }
 
@@ -125,6 +127,7 @@ struct EPUBWebView: NSViewRepresentable {
         private var appliedLineHeight: Double = 0
         private var highlightObserver: NSObjectProtocol?
         private var searchObserver: NSObjectProtocol?
+        private var restoreProgressObserver: NSObjectProtocol?
 
         init(parent: EPUBWebView) {
             self.parent = parent
@@ -135,6 +138,9 @@ struct EPUBWebView: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(obs)
             }
             if let obs = searchObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            if let obs = restoreProgressObserver {
                 NotificationCenter.default.removeObserver(obs)
             }
         }
@@ -179,6 +185,29 @@ struct EPUBWebView: NSViewRepresentable {
             if let obs = searchObserver {
                 NotificationCenter.default.removeObserver(obs)
                 searchObserver = nil
+            }
+        }
+
+        func startObservingRestoreProgress() {
+            guard restoreProgressObserver == nil else { return }
+            restoreProgressObserver = NotificationCenter.default.addObserver(
+                forName: .epubRestoreProgress,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let progress = notification.userInfo?["progress"] as? Double else { return }
+                self.webView?.evaluateJavaScript(
+                    "window.ReaderRestoreProgress && window.ReaderRestoreProgress(\(progress));",
+                    completionHandler: nil
+                )
+            }
+        }
+
+        func stopObservingRestoreProgress() {
+            if let obs = restoreProgressObserver {
+                NotificationCenter.default.removeObserver(obs)
+                restoreProgressObserver = nil
             }
         }
 

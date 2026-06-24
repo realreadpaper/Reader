@@ -5,11 +5,14 @@ struct FontPanelView: View {
     @Binding var lineHeight: Double
     @Binding var selectedTheme: AppTheme
     @Binding var pdfFilterEnabled: Bool
+    let fileType: FileType
     let onClose: () -> Void
 
     @Environment(ThemeManager.self) private var themeManager
 
     let lineSpacings: [Double] = [1.5, 1.8, 2.0, 2.2, 2.5]
+
+    private var isPDF: Bool { fileType == .pdf }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -27,7 +30,7 @@ struct FontPanelView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("字体大小  \(Int(fontSize))px")
+                Text(isPDF ? "缩放比例  \(String(format: "%.0f", fontSize / 16.0 * 100))%" : "字体大小  \(Int(fontSize))px")
                     .font(.caption)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
 
@@ -47,31 +50,33 @@ struct FontPanelView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("行距")
-                    .font(.caption)
-                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+            if !isPDF {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("行距")
+                        .font(.caption)
+                        .foregroundStyle(themeManager.currentTheme.secondaryText)
 
-                HStack(spacing: 6) {
-                    ForEach(lineSpacings, id: \.self) { spacing in
-                        Button(action: { lineHeight = spacing }) {
-                            Text(String(format: "%.1f", spacing))
-                                .font(.caption)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    abs(lineHeight - spacing) < 0.01
-                                        ? themeManager.currentTheme.accent
-                                        : themeManager.currentTheme.border
-                                )
-                                .foregroundStyle(
-                                    abs(lineHeight - spacing) < 0.01
-                                        ? .white
-                                        : themeManager.currentTheme.primaryText
-                                )
-                                .cornerRadius(5)
+                    HStack(spacing: 6) {
+                        ForEach(lineSpacings, id: \.self) { spacing in
+                            Button(action: { lineHeight = spacing }) {
+                                Text(String(format: "%.1f", spacing))
+                                    .font(.caption)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        abs(lineHeight - spacing) < 0.01
+                                            ? themeManager.currentTheme.accent
+                                            : themeManager.currentTheme.border
+                                    )
+                                    .foregroundStyle(
+                                        abs(lineHeight - spacing) < 0.01
+                                            ? .white
+                                            : themeManager.currentTheme.primaryText
+                                    )
+                                    .cornerRadius(5)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -113,14 +118,16 @@ struct FontPanelView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("PDF 色调")
-                    .font(.caption)
-                    .foregroundStyle(themeManager.currentTheme.secondaryText)
+            if isPDF {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("PDF 色调")
+                        .font(.caption)
+                        .foregroundStyle(themeManager.currentTheme.secondaryText)
 
-                Toggle("夜间/护眼模式对 PDF 生效", isOn: $pdfFilterEnabled)
-                    .font(.caption)
-                    .foregroundStyle(themeManager.currentTheme.primaryText)
+                    Toggle("夜间/护眼模式对 PDF 生效", isOn: $pdfFilterEnabled)
+                        .font(.caption)
+                        .foregroundStyle(themeManager.currentTheme.primaryText)
+                }
             }
 
             Spacer()

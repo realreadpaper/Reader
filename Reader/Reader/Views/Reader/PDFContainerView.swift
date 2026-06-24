@@ -9,6 +9,8 @@ struct PDFContainerView: NSViewRepresentable {
     let targetPageIndex: Int
     let theme: AppTheme
     let filterEnabled: Bool
+    let scaleFactor: Double
+    let onSelection: (String, CGRect) -> Void
 
     func makeCoordinator() -> PDFRendererCoordinator {
         PDFRendererCoordinator(renderCoordinator: coordinator)
@@ -16,16 +18,18 @@ struct PDFContainerView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> PDFView {
         let pdfView = PDFView()
-        pdfView.autoScales = true
+        pdfView.autoScales = false
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         pdfView.wantsLayer = true
         pdfView.delegate = context.coordinator
+        context.coordinator.parent = self
         context.coordinator.applyRenderOptions(
             to: pdfView,
             theme: theme,
             filterEnabled: filterEnabled
         )
+        pdfView.scaleFactor = CGFloat(scaleFactor) * pdfView.scaleFactorForSizeToFit
 
         let doc = document ?? PDFDocument(url: url)
         if let doc {
@@ -40,16 +44,24 @@ struct PDFContainerView: NSViewRepresentable {
             )
         }
 
+        context.coordinator.pdfView = pdfView
         context.coordinator.startObservingPageChanges(pdfView: pdfView)
+        context.coordinator.startObservingHighlightRequests()
+        context.coordinator.startSelectionMonitoring(pdfView: pdfView)
         return pdfView
     }
 
     func updateNSView(_ pdfView: PDFView, context: Context) {
+        context.coordinator.parent = self
         context.coordinator.applyRenderOptions(
             to: pdfView,
             theme: theme,
             filterEnabled: filterEnabled
         )
+        let targetScale = CGFloat(scaleFactor) * pdfView.scaleFactorForSizeToFit
+        if abs(pdfView.scaleFactor - targetScale) > 0.01 {
+            pdfView.scaleFactor = targetScale
+        }
 
         let doc = document ?? PDFDocument(url: url)
         if let doc, pdfView.document !== doc {
@@ -70,8 +82,10 @@ struct PDFContainerView: NSViewRepresentable {
 
     static func dismantleNSView(_ pdfView: PDFView, coordinator: PDFRendererCoordinator) {
         coordinator.stopObservingPageChanges()
+        coordinator.stopObservingHighlightRequests()
+        coordinator.stopSelectionMonitoring()
+        coordinator.pdfView = nil
     }
-
 }
 
 struct PDFRenderOptions: Equatable {
@@ -124,9 +138,14 @@ struct PDFRenderOptionsState {
 
 final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
     let renderCoordinator: RenderCoordinator
+    var parent: PDFContainerView?
+    weak var pdfView: PDFView?
     private var pageChangeObserver: NSObjectProtocol?
+    private var highlightObserver: NSObjectProtocol?
+    private var eventMonitor: Any?
     private var lastPageIndex: Int = -1
     private var renderOptionsState = PDFRenderOptionsState()
+    private var lastSelectedText: String = ""
 
     init(renderCoordinator: RenderCoordinator) {
         self.renderCoordinator = renderCoordinator
@@ -135,6 +154,12 @@ final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
     deinit {
         if let obs = pageChangeObserver {
             NotificationCenter.default.removeObserver(obs)
+        }
+        if let obs = highlightObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
         }
     }
 
@@ -166,6 +191,102 @@ final class PDFRendererCoordinator: NSObject, PDFViewDelegate {
             NotificationCenter.default.removeObserver(obs)
             pageChangeObserver = nil
         }
+    }
+
+    func startObservingHighlightRequests() {
+        guard highlightObserver == nil else { return }
+        highlightObserver = NotificationCenter.default.addObserver(
+            forName: .applyHighlightRequest,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let className = notification.userInfo?["className"] as? String else { return }
+            // className is like "reader-highlight-yellow"
+            let colorName = className.replacingOccurrences(of: "reader-highlight-", with: "")
+            Task { @MainActor in
+                self.addPDFHighlightAnnotation(colorName: colorName)
+            }
+        }
+    }
+
+    func stopObservingHighlightRequests() {
+        if let obs = highlightObserver {
+            NotificationCenter.default.removeObserver(obs)
+            highlightObserver = nil
+        }
+    }
+
+    func startSelectionMonitoring(pdfView: PDFView) {
+        // Monitor mouseUp events to detect text selection
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
+            guard let self, let pdfView = self.pdfView else { return event }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.checkSelection(pdfView: pdfView)
+            }
+            return event
+        }
+    }
+
+    func stopSelectionMonitoring() {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+    }
+
+    private func checkSelection(pdfView: PDFView) {
+        guard let selection = pdfView.currentSelection,
+              let page = pdfView.currentPage else {
+            if !lastSelectedText.isEmpty {
+                lastSelectedText = ""
+                Task { @MainActor in
+                    parent?.onSelection("", .zero)
+                }
+            }
+            return
+        }
+
+        let selectedText = selection.string ?? ""
+        guard !selectedText.isEmpty, selectedText != lastSelectedText else { return }
+        lastSelectedText = selectedText
+
+        // Get the selection bounds in window coordinates
+        let selectionBounds = selection.bounds(for: page)
+        if let pageView = pdfView.documentView {
+            let pageBounds = pdfView.convert(selectionBounds, from: page)
+            let windowBounds = pageView.convert(pageBounds, to: nil)
+            Task { @MainActor in
+                parent?.onSelection(selectedText, windowBounds)
+            }
+        }
+    }
+
+    @MainActor
+    private func addPDFHighlightAnnotation(colorName: String) {
+        guard let pdfView, let selection = pdfView.currentSelection else { return }
+
+        let pdfColor: NSColor
+        switch colorName {
+        case "yellow": pdfColor = NSColor(red: 0.96, green: 0.84, blue: 0.43, alpha: 0.55)
+        case "green":  pdfColor = NSColor(red: 0.49, green: 0.78, blue: 0.63, alpha: 0.55)
+        case "orange": pdfColor = NSColor(red: 0.91, green: 0.66, blue: 0.49, alpha: 0.55)
+        case "blue":   pdfColor = NSColor(red: 0.63, green: 0.72, blue: 0.91, alpha: 0.55)
+        default:       pdfColor = NSColor(red: 0.96, green: 0.84, blue: 0.43, alpha: 0.55)
+        }
+
+        for lineSelection in selection.selectionsByLine() {
+            guard let page = lineSelection.pages.first else { continue }
+            let bounds = lineSelection.bounds(for: page)
+            guard !bounds.isEmpty else { continue }
+            let annotation = PDFAnnotation(bounds: bounds, forType: .highlight, withProperties: nil)
+            annotation.color = pdfColor
+            page.addAnnotation(annotation)
+        }
+
+        // Clear selection after highlighting
+        pdfView.clearSelection()
+        lastSelectedText = ""
     }
 
     func applyRenderOptions(to pdfView: PDFView, theme: AppTheme, filterEnabled: Bool) {

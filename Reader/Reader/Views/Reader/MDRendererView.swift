@@ -8,6 +8,8 @@ struct MDRendererView: View {
     @Binding var progress: Double
     let themeManager: ThemeManager
     let storageService: StorageService
+    let settings: ReaderSettings
+    let onSelection: (String, CGRect) -> Void
 
     @State private var layoutMode: MDLayoutMode = .split
     @State private var editedContent: String = ""
@@ -69,12 +71,18 @@ struct MDRendererView: View {
             case .split:
                 SplitView(
                     content: $editedContent,
-                    theme: themeManager.currentTheme
+                    theme: themeManager.currentTheme,
+                    fontSize: settings.fontSize,
+                    lineHeight: settings.lineHeight,
+                    onSelection: onSelection
                 )
             case .previewOnly:
                 MDPreviewView(
                     content: editedContent,
-                    theme: themeManager.currentTheme
+                    theme: themeManager.currentTheme,
+                    fontSize: settings.fontSize,
+                    lineHeight: settings.lineHeight,
+                    onSelection: onSelection
                 )
             }
         }
@@ -101,19 +109,26 @@ struct MDRendererView: View {
 struct SplitView: View {
     @Binding var content: String
     let theme: AppTheme
+    let fontSize: Double
+    let lineHeight: Double
+    let onSelection: (String, CGRect) -> Void
 
     var body: some View {
         HSplitView {
             MDEditorView(
                 content: $content,
                 hasChanges: .constant(false),
-                theme: theme
+                theme: theme,
+                fontSize: fontSize
             )
             .frame(minWidth: 200)
 
             MDPreviewView(
                 content: content,
-                theme: theme
+                theme: theme,
+                fontSize: fontSize,
+                lineHeight: lineHeight,
+                onSelection: onSelection
             )
             .frame(minWidth: 200)
         }
@@ -124,6 +139,7 @@ struct MDEditorView: NSViewRepresentable {
     @Binding var content: String
     @Binding var hasChanges: Bool
     let theme: AppTheme
+    let fontSize: Double
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -131,7 +147,7 @@ struct MDEditorView: NSViewRepresentable {
 
         textView.isEditable = true
         textView.isSelectable = true
-        textView.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+        textView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.backgroundColor = NSColor(theme.contentBG)
         textView.textColor = NSColor(theme.primaryText)
         textView.insertionPointColor = NSColor(theme.accent)
@@ -160,6 +176,10 @@ struct MDEditorView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         if !context.coordinator.isTyping && textView.string != content {
             textView.string = content
+        }
+        let targetFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        if textView.font?.pointSize != CGFloat(fontSize) {
+            textView.font = targetFont
         }
     }
 
@@ -191,18 +211,66 @@ struct MDEditorView: NSViewRepresentable {
 struct MDPreviewView: NSViewRepresentable {
     let content: String
     let theme: AppTheme
+    let fontSize: Double
+    let lineHeight: Double
+    let onSelection: (String, CGRect) -> Void
+
+    private static let selectionJS = """
+    (function() {
+      if (window.__mdSelectionInstalled) return;
+      window.__mdSelectionInstalled = true;
+      function sendSelection() {
+        try {
+          var sel = window.getSelection();
+          if (!sel || sel.rangeCount === 0) return;
+          var text = sel.toString();
+          if (!text || text.length === 0 || text.length > 5000) return;
+          var range = sel.getRangeAt(0);
+          var rect = range.getBoundingClientRect();
+          if (rect.width === 0 && rect.height === 0) return;
+          window.webkit.messageHandlers.readerBridge.postMessage({
+            type: 'selection',
+            text: text,
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+          });
+        } catch(e) {}
+      }
+      var debounceTimer = null;
+      document.addEventListener('selectionchange', function() {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(sendSelection, 200);
+      });
+    })();
+    """
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        let userContent = WKUserContentController()
+        userContent.add(context.coordinator, name: "readerBridge")
+        let script = WKUserScript(source: Self.selectionJS, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        userContent.addUserScript(script)
+        config.userContentController = userContent
+
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
+        context.coordinator.webView = webView
+        context.coordinator.startObservingHighlightRequests()
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.parent = self
         let html = markdownToHTML(content)
         let fullHTML = wrapHTML(html, theme: theme)
         webView.loadHTMLString(fullHTML, baseURL: nil)
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.stopObservingHighlightRequests()
+        coordinator.webView = nil
     }
 
     private func markdownToHTML(_ markdown: String) -> String {
@@ -243,7 +311,8 @@ struct MDPreviewView: NSViewRepresentable {
     }
 
     private func wrapHTML(_ body: String, theme: AppTheme) -> String {
-        """
+        let lh = String(format: "%.2f", lineHeight)
+        return """
         <!DOCTYPE html>
         <html>
         <head>
@@ -254,8 +323,8 @@ struct MDPreviewView: NSViewRepresentable {
                     margin: 0 auto;
                     padding: 40px 20px;
                     font-family: -apple-system, "PingFang SC", "Songti SC", serif;
-                    font-size: 15px;
-                    line-height: 1.8;
+                    font-size: \(fontSize)px;
+                    line-height: \(lh);
                     background: \(theme.contentBG.hex);
                     color: \(theme.primaryText.hex);
                 }
@@ -288,10 +357,89 @@ struct MDPreviewView: NSViewRepresentable {
                 a { color: \(theme.accent.hex); }
                 hr { border: none; border-top: 1px solid \(theme.border.hex); margin: 1.5em 0; }
                 li { margin: 0.3em 0; }
+                .reader-highlight-yellow { background-color: rgba(245, 213, 110, 0.55) !important; }
+                .reader-highlight-green  { background-color: rgba(126, 200, 160, 0.55) !important; }
+                .reader-highlight-orange { background-color: rgba(232, 168, 124, 0.55) !important; }
+                .reader-highlight-blue   { background-color: rgba(160, 184, 232, 0.55) !important; }
             </style>
         </head>
         <body>\(body)</body>
         </html>
         """
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    class Coordinator: NSObject, WKScriptMessageHandler {
+        var parent: MDPreviewView
+        weak var webView: WKWebView?
+        private var highlightObserver: NSObjectProtocol?
+
+        init(parent: MDPreviewView) {
+            self.parent = parent
+        }
+
+        deinit {
+            if let obs = highlightObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+        }
+
+        func startObservingHighlightRequests() {
+            guard highlightObserver == nil else { return }
+            highlightObserver = NotificationCenter.default.addObserver(
+                forName: .applyHighlightRequest,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let className = notification.userInfo?["className"] as? String else { return }
+                let escaped = className.replacingOccurrences(of: "'", with: "\\'")
+                self.webView?.evaluateJavaScript(
+                    """
+                    (function() {
+                      try {
+                        var sel = window.getSelection();
+                        if (!sel || sel.rangeCount === 0) return false;
+                        var range = sel.getRangeAt(0);
+                        if (range.collapsed) return false;
+                        var span = document.createElement('span');
+                        span.className = '\(escaped)';
+                        range.surroundContents(span);
+                        sel.removeAllRanges();
+                        return true;
+                      } catch(e) { return false; }
+                    })();
+                    """,
+                    completionHandler: nil
+                )
+            }
+        }
+
+        func stopObservingHighlightRequests() {
+            if let obs = highlightObserver {
+                NotificationCenter.default.removeObserver(obs)
+                highlightObserver = nil
+            }
+        }
+
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            guard let body = message.body as? [String: Any],
+                  let type = body["type"] as? String,
+                  type == "selection" else { return }
+            guard let text = body["text"] as? String, !text.isEmpty else { return }
+            let rect = CGRect(
+                x: body["x"] as? Double ?? 0,
+                y: body["y"] as? Double ?? 0,
+                width: body["width"] as? Double ?? 0,
+                height: body["height"] as? Double ?? 0
+            )
+            Task { @MainActor in
+                parent.onSelection(text, rect)
+            }
+        }
     }
 }
