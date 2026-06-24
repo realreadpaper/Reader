@@ -108,7 +108,9 @@ final class MOBIParser: BookParser {
         }
         BookLog.mobi.info("parseClassic: decompressed \(raw.count) bytes total")
 
-        let html = Self.decodeHTML(raw, declaredEncoding: header.preferredTextEncoding)
+        let decodeDiagnostic = Self.decodeHTMLWithDiagnostic(raw, declaredEncoding: header.preferredTextEncoding)
+        BookLog.mobi.notice("decodeHTML: \(decodeDiagnostic.summary, privacy: .public)")
+        let html = decodeDiagnostic.html
         if html.isEmpty {
             BookLog.mobi.error("parseClassic: html is empty after decoding (raw not utf8/latin1, raw.prefix=\(raw.prefix(16).map(String.init).joined(), privacy: .public))")
         } else {
@@ -549,28 +551,106 @@ final class MOBIParser: BookParser {
     /// 很多中文 MOBI 声明 1252 (Western) 但内容是 GBK/GB18030。
     /// 策略：UTF-8（严格）→ 头声明的编码 → GB18030 → Big5 → Latin1 兜底
     static func decodeHTML(_ raw: Data, declaredEncoding: String.Encoding?) -> String {
+        decodeHTMLWithDiagnostic(raw, declaredEncoding: declaredEncoding).html
+    }
+
+    struct HTMLDecodeDiagnostic {
+        let html: String
+        let method: String
+        let declaredEncoding: String
+        let rawByteCount: Int
+        let replacementCharacterCount: Int
+        let sample: String
+
+        var summary: String {
+            "method=\(method) declared=\(declaredEncoding) rawBytes=\(rawByteCount) replacementChars=\(replacementCharacterCount) sample=\(sample)"
+        }
+    }
+
+    static func decodeHTMLWithDiagnostic(_ raw: Data, declaredEncoding: String.Encoding?) -> HTMLDecodeDiagnostic {
+        let declaredName = encodingName(declaredEncoding)
         if let s = String(data: raw, encoding: .utf8) {
-            BookLog.mobi.info("decodeHTML: utf8 OK")
-            return s
+            return HTMLDecodeDiagnostic(
+                html: s,
+                method: "utf8-strict",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: replacementCount(in: s),
+                sample: diagnosticSample(from: s)
+            )
         }
         if declaredEncoding == .utf8 {
-            BookLog.mobi.notice("decodeHTML: utf8 lossy fallback OK")
-            return String(decoding: raw, as: UTF8.self)
+            let s = String(decoding: raw, as: UTF8.self)
+            return HTMLDecodeDiagnostic(
+                html: s,
+                method: "utf8-lossy",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: replacementCount(in: s),
+                sample: diagnosticSample(from: s)
+            )
         }
         if let enc = declaredEncoding, enc != .utf8, let s = String(data: raw, encoding: enc) {
-            BookLog.mobi.info("decodeHTML: declared encoding OK")
-            return s
+            return HTMLDecodeDiagnostic(
+                html: s,
+                method: "declared-\(encodingName(enc))",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: replacementCount(in: s),
+                sample: diagnosticSample(from: s)
+            )
         }
         // 中文 MOBI 最常见的实际编码：GB18030 兼容 GBK/GB2312
         if let s = String(data: raw, encoding: .gb18030) {
-            BookLog.mobi.info("decodeHTML: GB18030 OK")
-            return s
+            return HTMLDecodeDiagnostic(
+                html: s,
+                method: "gb18030",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: replacementCount(in: s),
+                sample: diagnosticSample(from: s)
+            )
         }
         if let s = String(data: raw, encoding: .big5) {
-            BookLog.mobi.info("decodeHTML: Big5 OK")
-            return s
+            return HTMLDecodeDiagnostic(
+                html: s,
+                method: "big5",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: replacementCount(in: s),
+                sample: diagnosticSample(from: s)
+            )
         }
-        BookLog.mobi.notice("decodeHTML: falling back to isoLatin1 (may produce mojibake)")
-        return String(data: raw, encoding: .isoLatin1) ?? ""
+        let s = String(data: raw, encoding: .isoLatin1) ?? ""
+        return HTMLDecodeDiagnostic(
+            html: s,
+            method: "isoLatin1-fallback",
+            declaredEncoding: declaredName,
+            rawByteCount: raw.count,
+            replacementCharacterCount: replacementCount(in: s),
+            sample: diagnosticSample(from: s)
+        )
+    }
+
+    private static func encodingName(_ encoding: String.Encoding?) -> String {
+        guard let encoding else { return "nil" }
+        switch encoding {
+        case .utf8: return "utf8"
+        case .windowsCP1252: return "windowsCP1252"
+        case .gb18030: return "gb18030"
+        case .big5: return "big5"
+        case .isoLatin1: return "isoLatin1"
+        default: return "raw-\(encoding.rawValue)"
+        }
+    }
+
+    private static func replacementCount(in text: String) -> Int {
+        text.reduce(0) { $0 + ($1 == "\u{FFFD}" ? 1 : 0) }
+    }
+
+    private static func diagnosticSample(from text: String) -> String {
+        String(text.prefix(120))
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
     }
 }

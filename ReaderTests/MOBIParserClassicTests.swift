@@ -133,6 +133,20 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertFalse(html.contains("é»"))
     }
 
+    func testDecodeHTMLDiagnosticReportsSelectedStrategyAndReplacementCount() {
+        var raw = Data("<p>一个".utf8)
+        raw.append(0x91)
+        raw.append(Data("小时</p>".utf8))
+
+        let diagnostic = MOBIParser.decodeHTMLWithDiagnostic(raw, declaredEncoding: .utf8)
+
+        XCTAssertEqual(diagnostic.method, "utf8-lossy")
+        XCTAssertEqual(diagnostic.replacementCharacterCount, 1)
+        XCTAssertTrue(diagnostic.html.contains("�"))
+        XCTAssertTrue(diagnostic.summary.contains("method=utf8-lossy"))
+        XCTAssertTrue(diagnostic.summary.contains("replacementChars=1"))
+    }
+
     private func makeClassicMOBIFixture(
         html: String,
         extraDataFlags: UInt32 = 0,
