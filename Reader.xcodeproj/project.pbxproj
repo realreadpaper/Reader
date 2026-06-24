@@ -21,6 +21,8 @@
 		2E386A0E549C5444F9226D39 /* BookLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B277DAF5A3E1A05F7319FC /* BookLibrary.swift */; };
 		352DD20E798D4FED2DB809ED /* MOBIParserClassicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5561349CE23916F42822584 /* MOBIParserClassicTests.swift */; };
 		388F81BD76ED2B394791FBDD /* AnnotationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B219AE6A6A25E81D0C0D29A6 /* AnnotationView.swift */; };
+		3E5E86C2158F0BB8E92DA81F /* AppIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = D3F26FD9F4E970046378120F /* AppIcon.png */; };
+		40B95765B1E4C6986627BB78 /* AppIcon.svg in Resources */ = {isa = PBXBuildFile; fileRef = AB030714E5315872BC2F2305 /* AppIcon.svg */; };
 		44E3AC80FC730E3F0B671071 /* KF8IndexReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56E82FC768945A940554D9B2 /* KF8IndexReader.swift */; };
 		4BE7DEEF98DF999F5FD45A79 /* TXTParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCD01AF0EC52A60914E63BBC /* TXTParser.swift */; };
 		4FB5DD142CE5F584F1A87FE2 /* PDFRendererView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42EF1DAD93B93180D3D018E3 /* PDFRendererView.swift */; };
@@ -116,6 +118,7 @@
 		A4359206B2A63EA6A088E1A2 /* minimal.epub */ = {isa = PBXFileReference; path = minimal.epub; sourceTree = "<group>"; };
 		A620BE5B107B71A683D37D6E /* EPUBParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBParser.swift; sourceTree = "<group>"; };
 		A7C93320BF19FC1D0D708F65 /* Enums.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enums.swift; sourceTree = "<group>"; };
+		AB030714E5315872BC2F2305 /* AppIcon.svg */ = {isa = PBXFileReference; path = AppIcon.svg; sourceTree = "<group>"; };
 		B219AE6A6A25E81D0C0D29A6 /* AnnotationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationView.swift; sourceTree = "<group>"; };
 		B4F8BD3CE091E5B47E5FAB7B /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		BCD01AF0EC52A60914E63BBC /* TXTParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TXTParser.swift; sourceTree = "<group>"; };
@@ -124,6 +127,7 @@
 		C6B277DAF5A3E1A05F7319FC /* BookLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookLibrary.swift; sourceTree = "<group>"; };
 		CF3AA02E014AEF87B1A278F1 /* BookParseCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookParseCache.swift; sourceTree = "<group>"; };
 		D0377560638F3CB4F0D4C3EE /* MOBIDecompressorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIDecompressorTests.swift; sourceTree = "<group>"; };
+		D3F26FD9F4E970046378120F /* AppIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = AppIcon.png; sourceTree = "<group>"; };
 		D44C5B076B345A2D79B43282 /* PDFContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFContainerView.swift; sourceTree = "<group>"; };
 		D5561349CE23916F42822584 /* MOBIParserClassicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIParserClassicTests.swift; sourceTree = "<group>"; };
 		DAC3A7C3BF3D022A24798C49 /* epub-default.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "epub-default.css"; sourceTree = "<group>"; };
@@ -162,6 +166,8 @@
 		2D2623AFFD3300309EDC2A7E /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				D3F26FD9F4E970046378120F /* AppIcon.png */,
+				AB030714E5315872BC2F2305 /* AppIcon.svg */,
 				B15538030B81345C49149317 /* Styles */,
 			);
 			path = Resources;
@@ -412,6 +418,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3E5E86C2158F0BB8E92DA81F /* AppIcon.png in Resources */,
+				40B95765B1E4C6986627BB78 /* AppIcon.svg in Resources */,
 				939ED04F36963FB7F3B48A03 /* Assets.xcassets in Resources */,
 				63CA67061AC016A7C521B6DC /* epub-default.css in Resources */,
 				D0FF402BC9A6BF1805D9215F /* epub-themes.css in Resources */,
