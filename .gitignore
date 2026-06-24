@@ -13,3 +13,5 @@ xcuserdata/
 .DS_Store
 *.swp
 *~
+
+.claude/
