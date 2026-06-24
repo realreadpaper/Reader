@@ -17,7 +17,6 @@ struct MDRendererView: View {
 
     enum MDLayoutMode: String, CaseIterable {
         case split = "分栏"
-        case editOnly = "纯编辑"
         case previewOnly = "纯预览"
     }
 
@@ -53,11 +52,13 @@ struct MDRendererView: View {
                 Divider()
                     .frame(height: 16)
 
-                // 文件信息
-                Text(chapters[safe: currentChapter]?.title ?? book.title)
-                    .font(.caption)
-                    .foregroundStyle(themeManager.currentTheme.secondaryText)
-                    .lineLimit(1)
+                // 文件信息（分栏模式显示）
+                if layoutMode == .split {
+                    Text(chapters[safe: currentChapter]?.title ?? book.title)
+                        .font(.caption)
+                        .foregroundStyle(themeManager.currentTheme.secondaryText)
+                        .lineLimit(1)
+                }
 
                 Spacer()
 
@@ -99,15 +100,6 @@ struct MDRendererView: View {
                     theme: themeManager.currentTheme,
                     splitRatio: $splitRatio
                 )
-            case .editOnly:
-                MDEditorView(
-                    content: $editedContent,
-                    hasChanges: $hasUnsavedChanges,
-                    theme: themeManager.currentTheme
-                )
-                .onChange(of: editedContent) { _, _ in
-                    hasUnsavedChanges = (editedContent != originalContent)
-                }
             case .previewOnly:
                 MDPreviewView(
                     content: editedContent,
@@ -135,7 +127,6 @@ struct MDRendererView: View {
     private func layoutIcon(for mode: MDLayoutMode) -> String {
         switch mode {
         case .split: return "rectangle.split.2x1"
-        case .editOnly: return "doc.text"
         case .previewOnly: return "eye"
         }
     }
