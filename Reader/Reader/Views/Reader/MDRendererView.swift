@@ -13,7 +13,6 @@ struct MDRendererView: View {
     @State private var editedContent: String = ""
     @State private var originalContent: String = ""
     @State private var hasUnsavedChanges = false
-    @State private var splitRatio: CGFloat = 0.5
 
     enum MDLayoutMode: String, CaseIterable {
         case split = "分栏"
@@ -22,9 +21,7 @@ struct MDRendererView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 工具栏
             HStack(spacing: 8) {
-                // 布局切换
                 HStack(spacing: 2) {
                     ForEach(MDLayoutMode.allCases, id: \.self) { mode in
                         Button(action: { layoutMode = mode }) {
@@ -49,40 +46,16 @@ struct MDRendererView: View {
                 .background(themeManager.currentTheme.border.opacity(0.5))
                 .cornerRadius(6)
 
-                Divider()
-                    .frame(height: 16)
-
-                // 文件信息（分栏模式显示）
-                if layoutMode == .split {
-                    Text(chapters[safe: currentChapter]?.title ?? book.title)
-                        .font(.caption)
-                        .foregroundStyle(themeManager.currentTheme.secondaryText)
-                        .lineLimit(1)
-                }
-
                 Spacer()
 
-                // 字数统计
                 Text("\(editedContent.count) 字")
                     .font(.caption2)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
 
-                // 保存按钮
                 if hasUnsavedChanges {
-                    Button(action: saveChanges) {
-                        HStack(spacing: 3) {
-                            Circle()
-                                .fill(Color.orange)
-                                .frame(width: 6, height: 6)
-                            Text("未保存")
-                        }
-                        .font(.caption2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(themeManager.currentTheme.border)
-                        .cornerRadius(4)
-                    }
-                    .buttonStyle(.plain)
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 6, height: 6)
                 }
             }
             .padding(.horizontal, 12)
@@ -92,13 +65,11 @@ struct MDRendererView: View {
                 Divider().background(themeManager.currentTheme.border)
             }
 
-            // 内容区
             switch layoutMode {
             case .split:
                 SplitView(
                     content: $editedContent,
-                    theme: themeManager.currentTheme,
-                    splitRatio: $splitRatio
+                    theme: themeManager.currentTheme
                 )
             case .previewOnly:
                 MDPreviewView(
@@ -119,11 +90,6 @@ struct MDRendererView: View {
         hasUnsavedChanges = false
     }
 
-    private func saveChanges() {
-        hasUnsavedChanges = false
-        originalContent = editedContent
-    }
-
     private func layoutIcon(for mode: MDLayoutMode) -> String {
         switch mode {
         case .split: return "rectangle.split.2x1"
@@ -132,12 +98,9 @@ struct MDRendererView: View {
     }
 }
 
-// MARK: - 分栏视图
-
 struct SplitView: View {
     @Binding var content: String
     let theme: AppTheme
-    @Binding var splitRatio: CGFloat
 
     var body: some View {
         HSplitView {
@@ -157,8 +120,6 @@ struct SplitView: View {
     }
 }
 
-// MARK: - 编辑器
-
 struct MDEditorView: NSViewRepresentable {
     @Binding var content: String
     @Binding var hasChanges: Bool
@@ -166,7 +127,7 @@ struct MDEditorView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        let textView = MarkdownTextView()
+        let textView = NSTextView()
 
         textView.isEditable = true
         textView.isSelectable = true
@@ -226,12 +187,6 @@ struct MDEditorView: NSViewRepresentable {
         }
     }
 }
-
-class MarkdownTextView: NSTextView {
-    override var acceptsFirstResponder: Bool { true }
-}
-
-// MARK: - 预览器
 
 struct MDPreviewView: NSViewRepresentable {
     let content: String
@@ -338,13 +293,5 @@ struct MDPreviewView: NSViewRepresentable {
         <body>\(body)</body>
         </html>
         """
-    }
-}
-
-// MARK: - Array Safe Extension
-
-extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }
