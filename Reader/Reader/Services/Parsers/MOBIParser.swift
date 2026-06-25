@@ -104,7 +104,7 @@ final class MOBIParser: BookParser {
             raw.append(part)
         }
         if header.textLength > 0, raw.count > header.textLength {
-            raw = Data(raw.prefix(header.textLength))
+            raw = truncateToUTF8Boundary(raw, maxLength: header.textLength)
         }
         BookLog.mobi.info("parseClassic: decompressed \(raw.count) bytes total")
 
@@ -146,47 +146,6 @@ final class MOBIParser: BookParser {
             renderer: .html,
             pdfDocument: nil
         )
-    }
-
-    private func stripTrailingExtraData(from record: Data, flags: UInt32) -> Data {
-        guard flags != 0, !record.isEmpty else { return record }
-
-        var end = record.count
-        for bit in 0..<32 where (flags & (1 << UInt32(bit))) != 0 {
-            guard end > 0 else { return Data() }
-            if bit == 0 {
-                let overlapLength = Int(record[end - 1] & 0x03)
-                guard overlapLength <= end else { return Data() }
-                end -= overlapLength
-            } else {
-                guard let newEnd = extraDataStart(in: record, endingAt: end) else {
-                    break
-                }
-                end = newEnd
-            }
-        }
-
-        return end == record.count ? record : record.subdata(in: 0..<end)
-    }
-
-    private func extraDataStart(in record: Data, endingAt initialEnd: Int) -> Int? {
-        var end = initialEnd
-        var size = 0
-        var shift = 0
-
-        repeat {
-            guard end > 0, shift <= 28 else { return nil }
-            end -= 1
-            let byte = record[end]
-            size |= Int(byte & 0x7F) << shift
-            shift += 7
-            if byte & 0x80 == 0 {
-                break
-            }
-        } while true
-
-        guard size >= 0, size <= end else { return nil }
-        return end - size
     }
 
     private func splitChapters(in html: String) -> [String] {
@@ -454,14 +413,46 @@ final class MOBIParser: BookParser {
 
     private func coverImage(from pdb: PalmDatabase, header: MOBIHeader) -> Data? {
         guard let coverIdx = header.coverRecordIndex, coverIdx < pdb.records.count else { return nil }
-        return pdb.records[coverIdx]
+        let data = pdb.records[coverIdx]
+        if isImage(data) { return data }
+        // coverRecordIndex 指向的不是图片（firstImageRecord 是 first non-book index）
+        // 从 firstImageRecord 开始扫描第一张有效图片作为 fallback
+        guard let firstImage = header.firstImageRecord else { return data }
+        for i in firstImage..<pdb.records.count {
+            if isImage(pdb.records[i]) { return pdb.records[i] }
+        }
+        return data
     }
 
     func parseKF8(pdb: PalmDatabase, header: MOBIHeader, sourceURL: URL) throws -> ParsedBook {
         do {
             let reconstructed = try KF8Reconstructor(pdb: pdb, header: header, sourceURL: sourceURL).reconstruct()
             BookLog.mobi.info("parseKF8: native rawML reconstructed chapters=\(reconstructed.chapters.count)")
-            return reconstructed
+
+            // 提取图片并重写 KF8 flow 中的 recindex:XXXX 引用
+            let resourceMap = try writeImageResources(from: pdb, header: header, bookID: UUID().uuidString)
+            let updatedChapters = reconstructed.chapters.map { ch in
+                ParsedChapter(
+                    title: ch.title,
+                    bodyHTML: rewriteResourceReferences(
+                        in: ch.bodyHTML,
+                        resourcePaths: resourceMap.pathsByRecordIndex,
+                        firstImageRecord: header.firstImageRecord
+                    ),
+                    sourcePath: ch.sourcePath
+                )
+            }
+
+            return ParsedBook(
+                title: reconstructed.title,
+                author: reconstructed.author,
+                coverImage: reconstructed.coverImage,
+                chapters: updatedChapters,
+                toc: reconstructed.toc,
+                resourceDirectory: resourceMap.directory,
+                renderer: .html,
+                pdfDocument: nil
+            )
         } catch {
             BookLog.mobi.notice("parseKF8: native rawML reconstruction failed, trying legacy ZIP scan: \(error.localizedDescription, privacy: .public)")
         }
@@ -491,12 +482,7 @@ final class MOBIParser: BookParser {
             ParsedTOCEntry(title: entry.title, chapterIndex: entry.chapterIndex)
         }
 
-        let cover: Data? = {
-            if let idx = header.coverRecordIndex, idx < pdb.records.count {
-                return pdb.records[idx]
-            }
-            return nil
-        }()
+        let cover = coverImage(from: pdb, header: header)
 
         return ParsedBook(
             title: header.title,
@@ -549,7 +535,7 @@ final class MOBIParser: BookParser {
 
     /// 解码 MOBI 文本记录。MOBI 文件实际编码不一定与 header 声明一致：
     /// 很多中文 MOBI 声明 1252 (Western) 但内容是 GBK/GB18030。
-    /// 策略：UTF-8（严格）→ 少量坏字节按 CP1252 修复 → 头声明的非 UTF-8 编码 → GB18030 → Big5 → UTF-8 lossy → Latin1 兜底
+    /// 策略：头声明的非 UTF-8 编码 → UTF-8（严格）→ 少量坏字节按 CP1252 修复 → GB18030 → Big5 → UTF-8 lossy → Latin1 兜底
     static func decodeHTML(_ raw: Data, declaredEncoding: String.Encoding?) -> String {
         decodeHTMLWithDiagnostic(raw, declaredEncoding: declaredEncoding).html
     }
@@ -569,6 +555,33 @@ final class MOBIParser: BookParser {
 
     static func decodeHTMLWithDiagnostic(_ raw: Data, declaredEncoding: String.Encoding?) -> HTMLDecodeDiagnostic {
         let declaredName = encodingName(declaredEncoding)
+        var declaredCP1252LooksMojibake = false
+        if let enc = declaredEncoding, enc != .utf8, let s = String(data: raw, encoding: enc) {
+            if enc == .windowsCP1252, looksLikeLatinMojibake(s) {
+                // 声明 CP1252 但解码结果高比例 Latin-1 补充字符 → 很可能是中文 GBK 被误解释
+                // 跳过此结果，并在 UTF-8 之前优先尝试 GB18030，避免 GBK 字节刚好组成合法 UTF-8 时被误收。
+                declaredCP1252LooksMojibake = true
+            } else {
+                return HTMLDecodeDiagnostic(
+                    html: s,
+                    method: "declared-\(encodingName(enc))",
+                    declaredEncoding: declaredName,
+                    rawByteCount: raw.count,
+                    replacementCharacterCount: replacementCount(in: s),
+                    sample: diagnosticSample(from: s)
+                )
+            }
+        }
+        if declaredCP1252LooksMojibake, let s = String(data: raw, encoding: .gb18030) {
+            return HTMLDecodeDiagnostic(
+                html: s,
+                method: "gb18030",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: replacementCount(in: s),
+                sample: diagnosticSample(from: s)
+            )
+        }
         if let s = String(data: raw, encoding: .utf8) {
             return HTMLDecodeDiagnostic(
                 html: s,
@@ -590,16 +603,19 @@ final class MOBIParser: BookParser {
                     sample: diagnosticSample(from: repaired)
                 )
             }
-        }
-        if let enc = declaredEncoding, enc != .utf8, let s = String(data: raw, encoding: enc) {
-            return HTMLDecodeDiagnostic(
-                html: s,
-                method: "declared-\(encodingName(enc))",
-                declaredEncoding: declaredName,
-                rawByteCount: raw.count,
-                replacementCharacterCount: replacementCount(in: s),
-                sample: diagnosticSample(from: s)
-            )
+            let lossyUTF8 = String(decoding: raw, as: UTF8.self)
+            let lossyUTF8ReplacementCount = replacementCount(in: lossyUTF8)
+            let maxSparseUTF8Replacements = max(1, raw.count / 200)
+            if lossyUTF8ReplacementCount <= maxSparseUTF8Replacements {
+                return HTMLDecodeDiagnostic(
+                    html: lossyUTF8,
+                    method: "utf8-lossy",
+                    declaredEncoding: declaredName,
+                    rawByteCount: raw.count,
+                    replacementCharacterCount: lossyUTF8ReplacementCount,
+                    sample: diagnosticSample(from: lossyUTF8)
+                )
+            }
         }
         // 中文 MOBI 最常见的实际编码：GB18030 兼容 GBK/GB2312
         if let s = String(data: raw, encoding: .gb18030) {
@@ -612,10 +628,43 @@ final class MOBIParser: BookParser {
                 sample: diagnosticSample(from: s)
             )
         }
+        // GB18030 容错：处理大段中文中夹杂个别无效字节的场景
+        let gb18030Lossy = decodeGB18030Tolerant(raw)
+        let gb18030ReplacementCount = replacementCount(in: gb18030Lossy)
+        if gb18030ReplacementCount * 10 <= raw.count {
+            return HTMLDecodeDiagnostic(
+                html: gb18030Lossy,
+                method: "gb18030-tolerant",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: gb18030ReplacementCount,
+                sample: diagnosticSample(from: gb18030Lossy)
+            )
+        }
         if let s = String(data: raw, encoding: .big5) {
             return HTMLDecodeDiagnostic(
                 html: s,
                 method: "big5",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: replacementCount(in: s),
+                sample: diagnosticSample(from: s)
+            )
+        }
+        if let s = String(data: raw, encoding: .shiftJIS) {
+            return HTMLDecodeDiagnostic(
+                html: s,
+                method: "shiftJIS",
+                declaredEncoding: declaredName,
+                rawByteCount: raw.count,
+                replacementCharacterCount: replacementCount(in: s),
+                sample: diagnosticSample(from: s)
+            )
+        }
+        if let s = String(data: raw, encoding: .eucKR) {
+            return HTMLDecodeDiagnostic(
+                html: s,
+                method: "eucKR",
                 declaredEncoding: declaredName,
                 rawByteCount: raw.count,
                 replacementCharacterCount: replacementCount(in: s),
@@ -735,6 +784,8 @@ final class MOBIParser: BookParser {
         case .windowsCP1252: return "windowsCP1252"
         case .gb18030: return "gb18030"
         case .big5: return "big5"
+        case .shiftJIS: return "shiftJIS"
+        case .eucKR: return "eucKR"
         case .isoLatin1: return "isoLatin1"
         default: return "raw-\(encoding.rawValue)"
         }
@@ -744,9 +795,179 @@ final class MOBIParser: BookParser {
         text.reduce(0) { $0 + ($1 == "\u{FFFD}" ? 1 : 0) }
     }
 
+    /// 检测 CP1252 解码结果是否是中文被 Latin-1 误解释的乱码
+    /// 中文字节解码为 CP1252 后 U+0080-U+00FF 占比通常 >50%，合法西文文本 <10%
+    private static func looksLikeLatinMojibake(_ text: String) -> Bool {
+        let visibleText = stripHTMLTags(from: text)
+        var nonAscii = 0
+        var total = 0
+        var currentRun = 0
+        var maxRun = 0
+        for char in visibleText {
+            guard !char.isWhitespace else { continue }
+            total += 1
+            if let scalar = char.unicodeScalars.first, scalar.value >= 0x80, scalar.value <= 0xFF {
+                nonAscii += 1
+                currentRun += 1
+                maxRun = max(maxRun, currentRun)
+            } else {
+                currentRun = 0
+            }
+        }
+        guard total > 8 else { return false }
+        if total > 20 {
+            return nonAscii > total / 4
+        }
+        return maxRun >= 4 && nonAscii * 2 >= total
+    }
+
+    private static func stripHTMLTags(from text: String) -> String {
+        var result = ""
+        result.reserveCapacity(text.count)
+        var insideTag = false
+
+        for char in text {
+            if char == "<" {
+                insideTag = true
+                continue
+            }
+            if char == ">" {
+                insideTag = false
+                continue
+            }
+            if !insideTag {
+                result.append(char)
+            }
+        }
+
+        return result
+    }
+
+    /// GB18030 容错解码：逐字节解析，无效序列插入 U+FFFD 而非整段失败
+    private static func decodeGB18030Tolerant(_ raw: Data) -> String {
+        let bytes = [UInt8](raw)
+        var result = ""
+        result.reserveCapacity(raw.count)
+        var segStart = 0
+        var i = 0
+
+        while i < bytes.count {
+            let adv = gb18030SequenceAdvance(bytes: bytes, at: i)
+            if adv > 0 {
+                i += adv
+            } else {
+                if segStart < i {
+                    if let s = String(data: Data(bytes[segStart..<i]), encoding: .gb18030) {
+                        result.append(s)
+                    } else {
+                        result.append(String(decoding: bytes[segStart..<i], as: UTF8.self))
+                    }
+                }
+                result.append("\u{FFFD}")
+                i += 1
+                segStart = i
+            }
+        }
+        if segStart < bytes.count {
+            if let s = String(data: Data(bytes[segStart..<bytes.count]), encoding: .gb18030) {
+                result.append(s)
+            } else {
+                result.append(String(decoding: bytes[segStart..<bytes.count], as: UTF8.self))
+            }
+        }
+        return result
+    }
+
+    /// 返回当前字节位置开始的 GB18030 序列长度：1(ASCII)、2(GBK)、4(扩展)，无效返回 0
+    private static func gb18030SequenceAdvance(bytes: [UInt8], at i: Int) -> Int {
+        let b0 = bytes[i]
+        if b0 <= 0x7F { return 1 }
+        guard b0 >= 0x81 && b0 <= 0xFE, i + 1 < bytes.count else { return 0 }
+        let b1 = bytes[i + 1]
+        // Two-byte: second byte 0x40-0xFE, excluding 0x7F
+        if b1 >= 0x40 && b1 <= 0xFE && b1 != 0x7F { return 2 }
+        // Four-byte: b1=0x30-0x39, b2=0x81-0xFE, b3=0x30-0x39
+        if b1 >= 0x30 && b1 <= 0x39, i + 3 < bytes.count {
+            let b2 = bytes[i + 2]
+            let b3 = bytes[i + 3]
+            if b2 >= 0x81 && b2 <= 0xFE && b3 >= 0x30 && b3 <= 0x39 { return 4 }
+        }
+        return 0
+    }
+
     private static func diagnosticSample(from text: String) -> String {
         String(text.prefix(120))
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
     }
+}
+
+/// 从解压后的 record 尾部剥除 trailing extra data（overlap + size entry）
+/// - Parameters:
+///   - record: 解压后的单条 text record
+///   - flags: MOBI header 的 extraDataFlags
+/// - Returns: 干净的正文数据
+func stripTrailingExtraData(from record: Data, flags: UInt32) -> Data {
+    guard !record.isEmpty else { return record }
+
+    var end = record.count
+
+    if flags != 0 {
+        for bit in 0..<32 where (flags & (1 << UInt32(bit))) != 0 {
+            guard end > 0 else { return Data() }
+            if bit == 0 {
+                let overlapLength = Int(record[end - 1] & 0x03)
+                guard overlapLength <= end else { return Data() }
+                end -= overlapLength
+            } else {
+                guard let newEnd = extraDataStart(in: record, endingAt: end) else {
+                    break
+                }
+                end = newEnd
+            }
+        }
+    } else {
+        // 防御性 overlap 检测：早期 MOBI 可能未设 bit 0 但仍有跨 record overlap
+        // 尾字节低 2 位表示 overlap 长度(1-3)，正常 HTML 文本不以控制字符结尾
+        let lastByte = record[end - 1]
+        let possibleOverlap = Int(lastByte & 0x03)
+        if possibleOverlap > 0, lastByte <= 0x1F, possibleOverlap < end {
+            end -= possibleOverlap
+        }
+    }
+
+    return end == record.count ? record : record.subdata(in: 0..<end)
+}
+
+/// 从 record 尾部反向解析变长 size entry
+func extraDataStart(in record: Data, endingAt initialEnd: Int) -> Int? {
+    var end = initialEnd
+    var size = 0
+    var shift = 0
+
+    repeat {
+        guard end > 0, shift <= 28 else { return nil }
+        end -= 1
+        let byte = record[end]
+        size |= Int(byte & 0x7F) << shift
+        shift += 7
+        if byte & 0x80 == 0 {
+            break
+        }
+    } while true
+
+    guard size >= 0, size <= end else { return nil }
+    return end - size
+}
+
+/// 将截断位置对齐到 UTF-8 字符边界，避免切断多字节字符产生 U+FFFD
+func truncateToUTF8Boundary(_ data: Data, maxLength: Int) -> Data {
+    guard maxLength < data.count else { return data }
+    var end = maxLength
+    // UTF-8 continuation bytes: 0x80-0xBF (10xxxxxx)
+    // 回退到第一个非 continuation byte
+    while end > 0, data[end - 1] & 0xC0 == 0x80 {
+        end -= 1
+    }
+    return data.prefix(end)
 }

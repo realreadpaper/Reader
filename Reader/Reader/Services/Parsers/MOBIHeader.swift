@@ -13,6 +13,12 @@ extension String.Encoding {
             CFStringEncoding(CFStringEncodings.big5.rawValue)
         )
     )
+    /// EUC-KR 韩文
+    static let eucKR = String.Encoding(
+        rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.EUC_KR.rawValue)
+        )
+    )
 }
 
 enum MOBIVariant: Equatable {
@@ -143,9 +149,9 @@ struct MOBIHeader {
                 let valueData = record0.subdata(in: (p + 8)..<(p + len))
                 switch type {
                 case 100:
-                    author = String(data: valueData, encoding: .utf8) ?? String(data: valueData, encoding: .isoLatin1)
+                    author = String(data: valueData, encoding: .utf8) ?? String(data: valueData, encoding: .gb18030) ?? String(data: valueData, encoding: .isoLatin1)
                 case 503:
-                    title = String(data: valueData, encoding: .utf8) ?? String(data: valueData, encoding: .isoLatin1)
+                    title = String(data: valueData, encoding: .utf8) ?? String(data: valueData, encoding: .gb18030) ?? String(data: valueData, encoding: .isoLatin1)
                 case 201:
                     coverOffset = Int(valueData.readUInt32BE(at: 0))
                 default:
@@ -194,11 +200,12 @@ struct MOBIHeader {
             if rec1.count >= 20 {
                 let id = String(data: rec1.subdata(in: 16..<20), encoding: .ascii) ?? ""
                 if id == "BOUNDARY" {
+                    let textLast = base.lastTextRecord > 1 ? base.lastTextRecord : max(1, pdb.records.count - 2)
                     return MOBIHeader(
                         variant: .kf8,
                         compression: base.compression,
                         firstTextRecord: 1,
-                        lastTextRecord: max(1, pdb.records.count - 2),
+                        lastTextRecord: textLast,
                         textLength: base.textLength,
                         firstImageRecord: base.firstImageRecord,
                         textEncodingRaw: base.textEncodingRaw,

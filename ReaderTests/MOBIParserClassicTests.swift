@@ -161,14 +161,69 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertFalse(diagnostic.html.contains("�"))
     }
 
+    func testDecodeHTMLUsesTolerantUTF8WhenDeclaredUTF8HasSparseInvalidBytes() {
+        var raw = Data("<html><body><h1>长尾理论</h1><p>目录</p><p>互联网时代的选择和传播。</p>".utf8)
+        raw.append(0x90) // CP1252 undefined byte; should not make the whole book fall back to GB18030.
+        raw.append(Data("<p>继续保持中文可读。</p></body></html>".utf8))
+
+        let diagnostic = MOBIParser.decodeHTMLWithDiagnostic(raw, declaredEncoding: .utf8)
+
+        XCTAssertEqual(diagnostic.method, "utf8-lossy")
+        XCTAssertTrue(diagnostic.html.contains("长尾理论"))
+        XCTAssertTrue(diagnostic.html.contains("互联网时代的选择和传播"))
+        XCTAssertTrue(diagnostic.html.contains("继续保持中文可读"))
+        XCTAssertFalse(diagnostic.html.contains("闀垮熬鐞嗚"))
+    }
+
+    func testDecodeHTMLPrefersDeclaredGB18030OverAccidentalValidUTF8() throws {
+        let raw = try XCTUnwrap("<html><body><p>一业之为也</p></body></html>".data(using: .gb18030))
+
+        let diagnostic = MOBIParser.decodeHTMLWithDiagnostic(raw, declaredEncoding: .gb18030)
+
+        XCTAssertEqual(diagnostic.method, "declared-gb18030")
+        XCTAssertTrue(diagnostic.html.contains("一业之为也"))
+        XCTAssertFalse(diagnostic.html.contains("һҵ֮ΪҲ"))
+    }
+
+    func testDecodeHTMLFallsBackToGB18030WhenCP1252DeclaredBytesAreAccidentalValidUTF8() throws {
+        let raw = try XCTUnwrap("<html><body><p>一业之为也</p></body></html>".data(using: .gb18030))
+
+        let diagnostic = MOBIParser.decodeHTMLWithDiagnostic(raw, declaredEncoding: .windowsCP1252)
+
+        XCTAssertEqual(diagnostic.method, "gb18030")
+        XCTAssertTrue(diagnostic.html.contains("一业之为也"))
+        XCTAssertFalse(diagnostic.html.contains("һҵ֮ΪҲ"))
+    }
+
+    func testParseClassicMOBIDecodesGB18030BodyWhenHeaderDeclaresCP1252() async throws {
+        let html = "<html><body><h1>简单的逻辑学</h1><p>逻辑是一门独立的学问。</p></body></html>"
+        let url = try makeClassicMOBIFixture(
+            html: html,
+            textEncodingRaw: 1252,
+            bodyEncoding: .gb18030
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+
+        XCTAssertFalse(parsed.chapters.isEmpty)
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("简单的逻辑学"))
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("逻辑是一门独立的学问"))
+        XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("¼òµ¥"))
+    }
+
     private func makeClassicMOBIFixture(
         html: String,
+        textEncodingRaw: UInt32 = 65001,
+        bodyEncoding: String.Encoding = .utf8,
         extraDataFlags: UInt32 = 0,
         trailingTextRecordData: Data = Data(),
         resourceRecords: [Data] = []
     ) throws -> URL {
         try makeClassicMOBIFixture(
             htmlChunks: [html],
+            textEncodingRaw: textEncodingRaw,
+            bodyEncoding: bodyEncoding,
             extraDataFlags: extraDataFlags,
             trailingTextRecordData: [trailingTextRecordData],
             resourceRecords: resourceRecords
@@ -177,13 +232,16 @@ final class MOBIParserClassicTests: XCTestCase {
 
     private func makeClassicMOBIFixture(
         htmlChunks: [String],
+        textEncodingRaw: UInt32 = 65001,
+        bodyEncoding: String.Encoding = .utf8,
         extraDataFlags: UInt32 = 0,
         trailingTextRecordData: [Data] = [],
         resourceRecords: [Data] = []
     ) throws -> URL {
-        let htmlData = Data(htmlChunks.joined().utf8)
+        let htmlData = try XCTUnwrap(htmlChunks.joined().data(using: bodyEncoding))
         let textRecords = htmlChunks.enumerated().map { idx, chunk in
-            palmDocLiteralRecord(for: Data(chunk.utf8)) + trailingTextRecordData[safe: idx, default: Data()]
+            let chunkData = chunk.data(using: bodyEncoding) ?? Data(chunk.utf8)
+            return palmDocLiteralRecord(for: chunkData) + trailingTextRecordData[safe: idx, default: Data()]
         }
 
         var record0 = Data()
@@ -208,7 +266,7 @@ final class MOBIParserClassicTests: XCTestCase {
         record0.append(Data(bytes: &be32, count: 4))       // headerLength
         be32 = UInt32(0).bigEndian
         record0.append(Data(bytes: &be32, count: 4))       // mobiType
-        be32 = UInt32(65001).bigEndian
+        be32 = textEncodingRaw.bigEndian
         record0.append(Data(bytes: &be32, count: 4))       // textEncoding
         be32 = UInt32(1).bigEndian
         record0.append(Data(bytes: &be32, count: 4))       // uniqueID

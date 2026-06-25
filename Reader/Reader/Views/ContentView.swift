@@ -109,7 +109,8 @@ struct ContentView: View {
                     selectedBook: $selectedBook,
                     onRequestImport: { showImportPicker = true },
                     onToggleSidebar: { collapseSidebar() },
-                    importError: $importError
+                    importError: $importError,
+                    onImportBook: { book in selectedBook = book }
                 )
 
                 SidebarResizeHandle(width: $sidebarWidth)
@@ -144,7 +145,8 @@ struct ContentView: View {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
-                _ = try library?.importBook(at: url)
+                let book = try library?.importBook(at: url)
+                selectedBook = book
             } catch {
                 importError = error.localizedDescription
             }

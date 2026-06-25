@@ -8,6 +8,7 @@ struct SidebarView: View {
     let onRequestImport: () -> Void
     let onToggleSidebar: () -> Void
     @Binding var importError: String?
+    let onImportBook: ((Book) -> Void)?
 
     @State private var selectedTab: SidebarTab = .all
     @State private var searchText = ""
@@ -159,8 +160,9 @@ struct SidebarView: View {
                       let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
                 Task { @MainActor in
                     do {
-                        _ = try library.importBook(at: url)
+                        let book = try library.importBook(at: url)
                         refreshBookList()
+                        onImportBook?(book)
                     } catch {
                         importError = error.localizedDescription
                     }

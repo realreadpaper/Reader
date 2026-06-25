@@ -38,8 +38,9 @@ struct KF8Reconstructor {
         let rawML = try readRawML()
         let flows = try splitFlows(rawML: rawML)
         let chapters = flows.enumerated().compactMap { index, flow -> ParsedChapter? in
-            guard let html = String(data: flow, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !html.isEmpty else {
+            let diagnostic = MOBIParser.decodeHTMLWithDiagnostic(flow, declaredEncoding: .utf8)
+            let html = diagnostic.html.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !html.isEmpty else {
                 return nil
             }
             return ParsedChapter(
@@ -74,10 +75,11 @@ struct KF8Reconstructor {
         var raw = Data()
         for index in first...last {
             let decompressed = try MOBIDecompressor.decompress(pdb.records[index], compression: header.compression)
-            raw.append(decompressed)
+            let part = stripTrailingExtraData(from: decompressed, flags: header.extraDataFlags)
+            raw.append(part)
         }
         if header.textLength > 0, raw.count > header.textLength {
-            raw = Data(raw.prefix(header.textLength))
+            raw = truncateToUTF8Boundary(raw, maxLength: header.textLength)
         }
         return raw
     }
@@ -100,7 +102,22 @@ struct KF8Reconstructor {
         guard let index = header.coverRecordIndex, index < pdb.records.count else {
             return nil
         }
-        return pdb.records[index]
+        let data = pdb.records[index]
+        if isImageRecord(data) { return data }
+        guard let firstImage = header.firstImageRecord else { return data }
+        for i in firstImage..<pdb.records.count {
+            if isImageRecord(pdb.records[i]) { return pdb.records[i] }
+        }
+        return data
+    }
+
+    private func isImageRecord(_ data: Data) -> Bool {
+        guard data.count >= 4 else { return false }
+        let prefix = [UInt8](data.prefix(4))
+        if prefix[0] == 0xFF && prefix[1] == 0xD8 { return true }
+        if prefix[0] == 0x89 && prefix[1] == 0x50 && prefix[2] == 0x4E && prefix[3] == 0x47 { return true }
+        if prefix[0] == 0x47 && prefix[1] == 0x49 && prefix[2] == 0x46 && prefix[3] == 0x38 { return true }
+        return false
     }
 
     private static func extractTitle(from html: String) -> String? {

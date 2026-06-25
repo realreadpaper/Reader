@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct TopBarView: View {
     let book: Book
     let coordinator: RenderCoordinator
@@ -98,7 +99,6 @@ struct TopBarView: View {
         }
     }
 
-    @MainActor
     private func toggleBookmark() {
         let position = ReaderNavigationPosition.bookmarkPosition(
             fileType: book.fileType,
