@@ -69,6 +69,7 @@
 		E60B8131B536A58775DCFD6E /* TXTRendererView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65259F7C9A6D7133225FC03 /* TXTRendererView.swift */; };
 		EDAEC5DBF69136742BE05C95 /* KF8IndexReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49B6016966AE1BD3B8E6AF53 /* KF8IndexReaderTests.swift */; };
 		F8624D64C4346D7D6A8456DA /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E2F514D1D62A6C752916AC /* SidebarView.swift */; };
+		AA11BB22CC33DD44EE550005 /* MarkdownRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE550004 /* MarkdownRenderer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -149,6 +150,7 @@
 		F20EBD68B492D9562C3877F1 /* Reader.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Reader.entitlements; sourceTree = "<group>"; };
 		FF9F0E8C276E56551D158D91 /* Bookmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bookmark.swift; sourceTree = "<group>"; };
 		FFA49EE0971409CF19DEFFE2 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE550004 /* MarkdownRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRenderer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -205,6 +207,7 @@
 				56E82FC768945A940554D9B2 /* KF8IndexReader.swift */,
 				4B91A3AB789C4ED19CA13FE6 /* KF8Reconstructor.swift */,
 				57D187DF0961D564E88FEF3D /* MDParser.swift */,
+				AA11BB22CC33DD44EE550004 /* MarkdownRenderer.swift */,
 				60D918080FC8F427BF61C2A2 /* MOBIDecompressor.swift */,
 				E3DD150305FF2037F36EAEA1 /* MOBIHeader.swift */,
 				8F89A1C363134C80A7EF7F01 /* MOBIContainerInspector.swift */,
@@ -469,6 +472,7 @@
 				44E3AC80FC730E3F0B671071 /* KF8IndexReader.swift in Sources */,
 				4B91A3AC789C4ED19CA13FE6 /* KF8Reconstructor.swift in Sources */,
 				2C635A1D3A47D2263B274F95 /* MDParser.swift in Sources */,
+				AA11BB22CC33DD44EE550005 /* MarkdownRenderer.swift in Sources */,
 				BA12B882BC281E1ACD5228C4 /* MDRendererView.swift in Sources */,
 				1C4A774472B74143A1D30D52 /* MOBIConverter.swift in Sources */,
 				CE41B12059740A73BF2D536F /* MOBIDecompressor.swift in Sources */,
@@ -522,6 +526,8 @@
 			targetProxy = BB091BFCB75886AD99816568 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+
 
 /* Begin XCBuildConfiguration section */
 		3F1DBA0BDB833B5521A69526 /* Debug */ = {
@@ -732,6 +738,20 @@
 				PRODUCT_NAME = Reader;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.9;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"/opt/homebrew/Cellar/cmark-gfm/0.29.0.gfm.13/include",
+					"$(SRCROOT)/Reader/Reader/Services/Parsers/cmark-gfm",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"/opt/homebrew/Cellar/cmark-gfm/0.29.0.gfm.13/lib",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lcmark-gfm",
+					"-lcmark-gfm-extensions",
+				);
 			};
 			name = Debug;
 		};

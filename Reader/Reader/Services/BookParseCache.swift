@@ -24,7 +24,7 @@ struct CachedTOCEntry: Codable {
 
 final class BookParseCache {
     static let shared = BookParseCache()
-    private static let cacheFormatVersion = "text-md-single-v3"
+    private static let cacheFormatVersion = "text-md-cmark-v4"
 
     private let cacheDir: URL
     private let fileManager = FileManager.default

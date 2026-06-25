@@ -407,8 +407,9 @@ struct MDPreviewView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.parent = self
-        let html = markdownToHTML(content)
-        let fullHTML = wrapHTML(html, theme: theme)
+        let fullHTML = wrapHTML(content, theme: theme)
+        guard fullHTML != context.coordinator.lastLoadedHTML else { return }
+        context.coordinator.lastLoadedHTML = fullHTML
         webView.loadHTMLString(fullHTML, baseURL: nil)
     }
 
@@ -418,43 +419,6 @@ struct MDPreviewView: NSViewRepresentable {
         coordinator.stopObservingRestoreHighlights()
         coordinator.stopObservingScrollToHighlight()
         coordinator.webView = nil
-    }
-
-    private func markdownToHTML(_ markdown: String) -> String {
-        var html = markdown
-
-        html = html.replacingOccurrences(of: "&", with: "&amp;")
-        html = html.replacingOccurrences(of: "<", with: "&lt;")
-        html = html.replacingOccurrences(of: ">", with: "&gt;")
-
-        let regexPatterns: [(pattern: String, template: String)] = [
-            ("```(\\w*)\\n([\\s\\S]*?)```", "<pre><code>$2</code></pre>"),
-            ("`([^`]+)`", "<code>$1</code>"),
-            ("\\*\\*([^*]+)\\*\\*", "<strong>$1</strong>"),
-            ("\\*([^*]+)\\*", "<em>$1</em>"),
-            ("\\[([^\\]]+)\\]\\(([^)]+)\\)", "<a href=\"$2\">$1</a>"),
-            ("^> (.+)$", "<blockquote>$1</blockquote>"),
-            ("^---+$", "<hr>"),
-            ("^(\\d+)\\. (.+)$", "<li>$2</li>"),
-            ("^- (.+)$", "<li>$1</li>")
-        ]
-
-        for (pattern, template) in regexPatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) {
-                let range = NSRange(html.startIndex..., in: html)
-                html = regex.stringByReplacingMatches(in: html, range: range, withTemplate: template)
-            }
-        }
-
-        let paragraphs = html.components(separatedBy: "\n\n")
-        html = paragraphs.map { para -> String in
-            let trimmed = para.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { return "" }
-            if trimmed.hasPrefix("<") { return trimmed }
-            return "<p>\(trimmed)</p>"
-        }.joined(separator: "\n")
-
-        return html
     }
 
     private func wrapHTML(_ body: String, theme: AppTheme) -> String {
@@ -475,10 +439,11 @@ struct MDPreviewView: NSViewRepresentable {
                     background: \(theme.contentBG.hex);
                     color: \(theme.primaryText.hex);
                 }
-                h1, h2, h3, h4 { color: \(theme.primaryText.hex); margin-top: 1.5em; }
-                h1 { font-size: 1.6em; }
-                h2 { font-size: 1.3em; }
+                h1, h2, h3, h4, h5, h6 { color: \(theme.primaryText.hex); margin-top: 1.5em; margin-bottom: 0.5em; }
+                h1 { font-size: 1.6em; border-bottom: 1px solid \(theme.border.hex); padding-bottom: 0.3em; }
+                h2 { font-size: 1.3em; border-bottom: 1px solid \(theme.border.hex); padding-bottom: 0.3em; }
                 h3 { font-size: 1.1em; }
+                h4 { font-size: 1em; }
                 p { margin: 0.8em 0; }
                 pre {
                     background: \(theme.border.hex);
@@ -494,16 +459,49 @@ struct MDPreviewView: NSViewRepresentable {
                     padding: 2px 4px;
                     border-radius: 3px;
                 }
-                pre code { background: none; padding: 0; }
+                pre code { background: none; padding: 0; font-size: inherit; }
                 blockquote {
                     border-left: 3px solid \(theme.accent.hex);
                     margin: 1em 0;
                     padding: 0.5em 1em;
                     color: \(theme.secondaryText.hex);
                 }
-                a { color: \(theme.accent.hex); }
+                blockquote blockquote { margin: 0.5em 0; }
+                a { color: \(theme.accent.hex); text-decoration: none; }
+                a:hover { text-decoration: underline; }
                 hr { border: none; border-top: 1px solid \(theme.border.hex); margin: 1.5em 0; }
+                ul, ol { padding-left: 2em; margin: 0.5em 0; }
                 li { margin: 0.3em 0; }
+                li > ul, li > ol { margin: 0.2em 0; }
+                table {
+                    border-collapse: collapse;
+                    width: 100%;
+                    margin: 1em 0;
+                    font-size: 0.95em;
+                }
+                th, td {
+                    border: 1px solid \(theme.border.hex);
+                    padding: 8px 12px;
+                    text-align: left;
+                }
+                th {
+                    background: \(theme.border.hex);
+                    font-weight: 600;
+                }
+                tr:nth-child(even) { background: \(theme.contentBG.hex); }
+                img {
+                    max-width: 100%;
+                    height: auto;
+                    border-radius: 4px;
+                    margin: 0.5em 0;
+                }
+                del { color: \(theme.secondaryText.hex); text-decoration: line-through; }
+                input[type="checkbox"] {
+                    margin-right: 0.4em;
+                    vertical-align: middle;
+                }
+                .task-list-item { list-style: none; margin-left: -1.5em; }
+                .task-list-item input[type="checkbox"] { margin-right: 0.5em; }
                 .reader-highlight-yellow { background-color: rgba(245, 213, 110, 0.55) !important; }
                 .reader-highlight-green  { background-color: rgba(126, 200, 160, 0.55) !important; }
                 .reader-highlight-orange { background-color: rgba(232, 168, 124, 0.55) !important; }
@@ -520,6 +518,7 @@ struct MDPreviewView: NSViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var parent: MDPreviewView
         weak var webView: WKWebView?
+        var lastLoadedHTML: String?
         private var restoredInitialProgress = false
         private var highlightObserver: NSObjectProtocol?
         private var restoreProgressObserver: NSObjectProtocol?

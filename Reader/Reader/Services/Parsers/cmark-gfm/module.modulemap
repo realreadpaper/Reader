@@ -1,0 +1,10 @@
+module cmark_gfm [system] {
+    header "cmark-gfm.h"
+    export *
+}
+
+module cmark_gfm_extensions [system] {
+    header "cmark-gfm-core-extensions.h"
+    header "cmark-gfm-extension_api.h"
+    export *
+}
