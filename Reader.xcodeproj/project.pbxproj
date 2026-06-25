@@ -706,7 +706,22 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"/opt/homebrew/Cellar/cmark-gfm/0.29.0.gfm.13/include",
+					"$(SRCROOT)/Reader/Reader/Services/Parsers/cmark-gfm",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"/opt/homebrew/Cellar/cmark-gfm/0.29.0.gfm.13/lib",
+				);
 				MARKETING_VERSION = 1.0.0;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lcmark-gfm",
+					"-lcmark-gfm-extensions",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.reader.app;
 				PRODUCT_NAME = Reader;
 				SDKROOT = macosx;

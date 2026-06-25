@@ -132,7 +132,7 @@ build_flavor() {
     -archivePath "$archive_path" \
     -derivedDataPath "$derived_data_path" \
     ARCHS="$archs" \
-    ONLY_ACTIVE_ARCH=NO \
+    ONLY_ACTIVE_ARCH=YES \
     SKIP_INSTALL=NO \
     CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
     CODE_SIGN_STYLE="$CODE_SIGN_STYLE"
@@ -156,7 +156,7 @@ write_checksums() {
 }
 
 main() {
-  local requested="${1:-all}"
+  local requested="${1:-arm64}"
   local version="${VERSION:-$(version_from_project)}"
   local flavors=()
 

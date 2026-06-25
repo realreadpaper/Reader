@@ -27,14 +27,21 @@ jobs:
             echo "READER_VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
           fi
 
+      - name: Install cmark-gfm
+        run: |
+          brew install cmark-gfm
+          CMARK_PREFIX="$(brew --prefix cmark-gfm)"
+          sudo mkdir -p /opt/homebrew/Cellar/cmark-gfm/0.29.0.gfm.13
+          sudo ln -s "$CMARK_PREFIX/include" /opt/homebrew/Cellar/cmark-gfm/0.29.0.gfm.13/include
+          sudo ln -s "$CMARK_PREFIX/lib" /opt/homebrew/Cellar/cmark-gfm/0.29.0.gfm.13/lib
+
       - name: Package Release DMG
         run: |
-          VERSION="$READER_VERSION" scripts/package_release.sh all
+          VERSION="$READER_VERSION" scripts/package_release.sh arm64
 
       - name: Verify DMG Layout
         run: |
           scripts/verify_dmg.sh "dist/Reader-$READER_VERSION-arm64.dmg"
-          scripts/verify_dmg.sh "dist/Reader-$READER_VERSION-x86_64.dmg"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
