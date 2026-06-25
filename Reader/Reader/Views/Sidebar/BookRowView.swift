@@ -47,10 +47,14 @@ struct BookRowView: View {
                 }
                 HStack(spacing: 4) {
                     if book.progress > 0 {
-                        ProgressView(value: book.progress)
-                            .progressViewStyle(.linear)
-                            .tint(theme.currentTheme.accent)
-                            .frame(width: 40)
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(theme.currentTheme.border.opacity(0.5))
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(theme.currentTheme.accent)
+                                .frame(width: 40 * CGFloat(book.progress))
+                        }
+                        .frame(width: 40, height: 4)
                         Text("\(Int(book.progress * 100))%")
                             .font(.caption2)
                             .foregroundStyle(BookRowSelectionStyle.secondaryColor(theme: theme.currentTheme, isSelected: isSelected))

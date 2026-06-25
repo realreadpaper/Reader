@@ -53,17 +53,6 @@ struct MDRendererView: View {
 
                 Spacer()
 
-                Button(action: saveContent) {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 13))
-                        .frame(width: 28, height: 24)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(hasUnsavedChanges ? themeManager.currentTheme.accent : themeManager.currentTheme.secondaryText)
-                .disabled(!hasUnsavedChanges)
-                .keyboardShortcut("s", modifiers: .command)
-                .help("保存 (⌘S)")
-
                 Text("\(editedContent.count) 字")
                     .font(.caption2)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
