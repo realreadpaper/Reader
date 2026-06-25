@@ -15,9 +15,8 @@ struct MDRendererView: View {
 
     @State private var layoutMode: MDLayoutMode = .split
     @State private var editedContent: String = ""
-    @State private var originalContent: String = ""
-    @State private var hasUnsavedChanges = false
-    @State private var saveError: String?
+    @State private var previewHTML: String = ""
+    @State private var saveTask: Task<Void, Never>?
 
     enum MDLayoutMode: String, CaseIterable {
         case split = "分栏"
@@ -56,12 +55,6 @@ struct MDRendererView: View {
                 Text("\(editedContent.count) 字")
                     .font(.caption2)
                     .foregroundStyle(themeManager.currentTheme.secondaryText)
-
-                if hasUnsavedChanges {
-                    Circle()
-                        .fill(Color.orange)
-                        .frame(width: 6, height: 6)
-                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -74,10 +67,10 @@ struct MDRendererView: View {
             case .split:
                 SplitView(
                     content: $editedContent,
+                    previewHTML: previewHTML,
                     theme: themeManager.currentTheme,
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
-                    hasUnsavedChanges: $hasUnsavedChanges,
                     progress: $progress,
                     onProgress: onProgress,
                     onSelection: onSelection,
@@ -85,7 +78,7 @@ struct MDRendererView: View {
                 )
             case .previewOnly:
                 MDPreviewView(
-                    content: editedContent,
+                    content: previewHTML,
                     theme: themeManager.currentTheme,
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
@@ -98,38 +91,34 @@ struct MDRendererView: View {
         }
         .onAppear { loadContent() }
         .onChange(of: currentChapter) { _, _ in loadContent() }
-        .onChange(of: editedContent) { _, newValue in
-            hasUnsavedChanges = newValue != originalContent
-        }
-        .alert("保存失败", isPresented: Binding(
-            get: { saveError != nil },
-            set: { if !$0 { saveError = nil } }
-        )) {
-            Button("好") { saveError = nil }
-        } message: {
-            Text(saveError ?? "")
+        .onChange(of: editedContent) { _, _ in
+            scheduleAutoSave()
         }
     }
 
     private func loadContent() {
         guard currentChapter < chapters.count else { return }
         let chapter = chapters[currentChapter]
-        originalContent = chapter.htmlContent
-        editedContent = chapter.htmlContent
-        hasUnsavedChanges = false
+        let raw = chapter.rawMarkdown ?? chapter.htmlContent
+        editedContent = raw
+        previewHTML = MarkdownRenderer.renderHTML(raw)
+    }
+
+    private func scheduleAutoSave() {
+        previewHTML = MarkdownRenderer.renderHTML(editedContent)
+        saveTask?.cancel()
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            saveContent()
+        }
     }
 
     @MainActor
     private func saveContent() {
-        do {
-            let url = URL(fileURLWithPath: book.filePath)
-            try editedContent.write(to: url, atomically: true, encoding: .utf8)
-            originalContent = editedContent
-            hasUnsavedChanges = false
-            storageService.updateBook(book)
-        } catch {
-            saveError = error.localizedDescription
-        }
+        let url = URL(fileURLWithPath: book.filePath)
+        try? editedContent.write(to: url, atomically: true, encoding: .utf8)
+        storageService.updateBook(book)
     }
 
     private func layoutIcon(for mode: MDLayoutMode) -> String {
@@ -142,10 +131,10 @@ struct MDRendererView: View {
 
 struct SplitView: View {
     @Binding var content: String
+    let previewHTML: String
     let theme: AppTheme
     let fontSize: Double
     let lineHeight: Double
-    @Binding var hasUnsavedChanges: Bool
     @Binding var progress: Double
     let onProgress: (Double) -> Void
     let onSelection: (String, CGRect) -> Void
@@ -155,14 +144,13 @@ struct SplitView: View {
         HSplitView {
             MDEditorView(
                 content: $content,
-                hasChanges: $hasUnsavedChanges,
                 theme: theme,
                 fontSize: fontSize
             )
             .frame(minWidth: 200)
 
             MDPreviewView(
-                content: content,
+                content: previewHTML,
                 theme: theme,
                 fontSize: fontSize,
                 lineHeight: lineHeight,
@@ -178,7 +166,6 @@ struct SplitView: View {
 
 struct MDEditorView: NSViewRepresentable {
     @Binding var content: String
-    @Binding var hasChanges: Bool
     let theme: AppTheme
     let fontSize: Double
 
@@ -239,7 +226,6 @@ struct MDEditorView: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             isTyping = true
             parent.content = textView.string
-            parent.hasChanges = true
 
             updateTimer?.invalidate()
             updateTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in

@@ -10,7 +10,8 @@ final class MDParser: BookParser {
             ParsedChapter(
                 title: title,
                 bodyHTML: html,
-                sourcePath: "md-document"
+                sourcePath: "md-document",
+                rawMarkdown: content
             )
         ]
         let toc = [ParsedTOCEntry(title: title, chapterIndex: 0)]

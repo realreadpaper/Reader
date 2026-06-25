@@ -6,6 +6,7 @@ struct EPUBChapter {
     let htmlContent: String
     let fileName: String
     let spineIndex: Int
+    var rawMarkdown: String? = nil
 }
 
 struct EPUBMetadata {

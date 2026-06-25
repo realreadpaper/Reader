@@ -15,6 +15,7 @@ struct CachedChapter: Codable {
     let title: String
     let bodyHTML: String
     let sourcePath: String
+    var rawMarkdown: String? = nil
 }
 
 struct CachedTOCEntry: Codable {
@@ -24,7 +25,7 @@ struct CachedTOCEntry: Codable {
 
 final class BookParseCache {
     static let shared = BookParseCache()
-    private static let cacheFormatVersion = "text-md-cmark-v4"
+    private static let cacheFormatVersion = "text-md-rawmd-v5"
 
     private let cacheDir: URL
     private let fileManager = FileManager.default
@@ -57,7 +58,7 @@ final class BookParseCache {
         }
 
         let chapters = cached.chapters.map {
-            ParsedChapter(title: $0.title, bodyHTML: $0.bodyHTML, sourcePath: $0.sourcePath)
+            ParsedChapter(title: $0.title, bodyHTML: $0.bodyHTML, sourcePath: $0.sourcePath, rawMarkdown: $0.rawMarkdown)
         }
         let toc = cached.toc.map {
             ParsedTOCEntry(title: $0.title, chapterIndex: $0.chapterIndex)
@@ -94,7 +95,7 @@ final class BookParseCache {
             author: parsed.author,
             coverImage: parsed.coverImage,
             chapters: parsed.chapters.map {
-                CachedChapter(title: $0.title, bodyHTML: $0.bodyHTML, sourcePath: $0.sourcePath)
+                CachedChapter(title: $0.title, bodyHTML: $0.bodyHTML, sourcePath: $0.sourcePath, rawMarkdown: $0.rawMarkdown)
             },
             toc: parsed.toc.map {
                 CachedTOCEntry(title: $0.title, chapterIndex: $0.chapterIndex)

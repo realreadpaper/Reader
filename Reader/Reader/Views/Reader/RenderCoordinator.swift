@@ -76,7 +76,8 @@ final class RenderCoordinator {
                         title: $0.title,
                         htmlContent: $0.bodyHTML,
                         fileName: $0.sourcePath,
-                        spineIndex: 0
+                        spineIndex: 0,
+                        rawMarkdown: $0.rawMarkdown
                     )
                 },
                 tocEntries: parsed.toc.map {
@@ -115,7 +116,8 @@ final class RenderCoordinator {
                         title: $0.title,
                         htmlContent: $0.bodyHTML,
                         fileName: $0.sourcePath,
-                        spineIndex: 0
+                        spineIndex: 0,
+                        rawMarkdown: $0.rawMarkdown
                     )
                 },
                 tocEntries: parsed.toc.map {

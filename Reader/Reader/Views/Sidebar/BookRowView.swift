@@ -25,6 +25,15 @@ struct BookRowView: View {
                 }
             }
             .shadow(color: .black.opacity(0.15), radius: 1.5, x: 0, y: 1)
+            .overlay(alignment: .bottomTrailing) {
+                Text(book.fileType.rawValue.uppercased())
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(.black.opacity(0.5)))
+                    .padding(2)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {

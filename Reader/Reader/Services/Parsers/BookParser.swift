@@ -18,6 +18,7 @@ struct ParsedChapter {
     let title: String
     let bodyHTML: String
     let sourcePath: String
+    var rawMarkdown: String? = nil
 }
 
 struct ParsedTOCEntry {
