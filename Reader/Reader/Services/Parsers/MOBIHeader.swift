@@ -42,9 +42,14 @@ struct MOBIHeader {
     let firstImageRecord: Int?
     let textEncodingRaw: UInt32
     let extraDataFlags: UInt32
+    let drmOffset: UInt32
     let title: String
     let author: String?
     let coverRecordIndex: Int?
+
+    var hasDRM: Bool {
+        drmOffset != 0xFFFFFFFF && drmOffset != 0
+    }
 
     /// 将 MOBI 头里声明的 text encoding codepage 映射到 Swift String.Encoding
     /// 常见值：1252=Western, 65001=UTF-8, 936=GBK/GB2312, 950=Big5
@@ -95,6 +100,7 @@ struct MOBIHeader {
         let textEncodingRaw = record0.readUInt32BE(at: 28)
         let textLength = Int(record0.readUInt32BE(at: 4))
         let extraDataFlags = record0.count >= 244 ? record0.readUInt32BE(at: 240) : 0
+        let drmOffset: UInt32 = record0.count >= 172 ? record0.readUInt32BE(at: 168) : 0xFFFFFFFF
         // PalmDOC 头 offset 8-10 是 text record count（不含 record0 头记录）
         // 这是经典 MOBI 文本范围的权威来源，比 MOBI header 内部的字段更可靠
         let palmDocTextRecordCount = Int(record0.readUInt16BE(at: 8))
@@ -176,6 +182,7 @@ struct MOBIHeader {
             firstImageRecord: firstImageRecord > 0 ? firstImageRecord : nil,
             textEncodingRaw: textEncodingRaw,
             extraDataFlags: extraDataFlags,
+            drmOffset: drmOffset,
             title: finalTitle,
             author: author,
             coverRecordIndex: coverRecordIndex
@@ -210,6 +217,7 @@ struct MOBIHeader {
                         firstImageRecord: base.firstImageRecord,
                         textEncodingRaw: base.textEncodingRaw,
                         extraDataFlags: base.extraDataFlags,
+                        drmOffset: base.drmOffset,
                         title: base.title,
                         author: base.author,
                         coverRecordIndex: base.coverRecordIndex
@@ -231,6 +239,7 @@ struct MOBIHeader {
                 firstImageRecord: base.firstImageRecord,
                 textEncodingRaw: base.textEncodingRaw,
                 extraDataFlags: base.extraDataFlags,
+                drmOffset: base.drmOffset,
                 title: base.title,
                 author: base.author,
                 coverRecordIndex: base.coverRecordIndex

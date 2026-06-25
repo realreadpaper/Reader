@@ -58,7 +58,7 @@ final class MOBIParser: BookParser {
         }
     }
 
-    private func parseViaCalibre(fileAt url: URL) async throws -> ParsedBook {
+    func parseViaCalibre(fileAt url: URL) async throws -> ParsedBook {
         guard converter.isAvailable else {
             BookLog.converter.error("parseViaCalibre: ebook-convert not found")
             throw BookParseError.calibreNotInstalled

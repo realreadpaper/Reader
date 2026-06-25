@@ -40,7 +40,7 @@ enum ReaderNavigationPosition {
         switch fileType {
         case .pdf:
             return "pdfPage:\(max(0, pdfCurrentPage - 1))"
-        case .epub, .mobi, .txt, .md:
+        case .epub, .mobi, .azw3, .azw, .txt, .md:
             return "\(fileType.rawValue):\(max(0, currentChapter)):\(max(0, min(1, progress)))"
         }
     }
@@ -53,7 +53,7 @@ enum ReaderNavigationPosition {
         switch fileType {
         case .pdf:
             return max(0, pdfCurrentPage - 1) * 1_000_000
-        case .epub, .mobi, .txt, .md:
+        case .epub, .mobi, .azw3, .azw, .txt, .md:
             return max(0, currentChapter) * 1_000_000
         }
     }

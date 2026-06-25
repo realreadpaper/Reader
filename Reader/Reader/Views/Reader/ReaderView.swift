@@ -175,7 +175,7 @@ struct ReaderView: View {
     @ViewBuilder
     private var mainRenderer: some View {
         switch book.fileType {
-        case .epub, .mobi:
+        case .epub, .mobi, .azw3, .azw:
             if !coordinator.chapters.isEmpty {
                 EPUBRendererView(
                     book: book,

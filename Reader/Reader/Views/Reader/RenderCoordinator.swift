@@ -192,7 +192,7 @@ final class RenderCoordinator {
 
     var totalChapters: Int {
         switch book.fileType {
-        case .epub, .mobi, .txt, .md:
+        case .epub, .mobi, .azw3, .azw, .txt, .md:
             return epubPageCount > 0 ? epubPageCount : chapters.count
         case .pdf:
             return pdfPageCount
@@ -201,7 +201,7 @@ final class RenderCoordinator {
 
     var displayCurrentPage: Int {
         switch book.fileType {
-        case .epub, .mobi, .txt, .md:
+        case .epub, .mobi, .azw3, .azw, .txt, .md:
             return epubCurrentPage > 0 ? epubCurrentPage : currentChapter + 1
         case .pdf:
             return pdfCurrentPage

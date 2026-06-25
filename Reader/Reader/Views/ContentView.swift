@@ -10,6 +10,8 @@ private let supportedImportTypes: [UTType] = {
     if let txt = UTType(filenameExtension: "txt") { types.append(txt) }
     if let md = UTType(filenameExtension: "md") { types.append(md) }
     if let markdown = UTType(filenameExtension: "markdown") { types.append(markdown) }
+    if let azw3 = UTType(filenameExtension: "azw3") { types.append(azw3) }
+    if let azw = UTType(filenameExtension: "azw") { types.append(azw) }
     return types
 }()
 

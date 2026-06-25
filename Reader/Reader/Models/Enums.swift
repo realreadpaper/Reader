@@ -6,6 +6,8 @@ enum FileType: String, Codable, CaseIterable {
     case pdf
     case txt
     case md
+    case azw3
+    case azw
 
     static func fromFileExtension(_ ext: String) -> FileType? {
         switch ext.lowercased() {
@@ -14,6 +16,8 @@ enum FileType: String, Codable, CaseIterable {
         case "pdf": return .pdf
         case "txt": return .txt
         case "md", "markdown": return .md
+        case "azw3": return .azw3
+        case "azw": return .azw
         default: return nil
         }
     }

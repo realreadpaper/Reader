@@ -45,6 +45,7 @@ enum BookParserRegistry {
         case .pdf:  return PDFParser()
         case .txt:  return TXTParser()
         case .md:   return MDParser()
+        case .azw3, .azw: return KindleParser()
         }
     }
 
@@ -77,7 +78,7 @@ enum BookParseError: Error, LocalizedError {
         case .corruptedFile(let d):
             return "文件损坏：\(d)"
         case .calibreNotInstalled:
-            return "原生解析不支持该 MOBI 变体，且未检测到 calibre。请安装 calibre 后重试。"
+            return "原生解析不支持该格式，且未检测到 calibre。请安装 calibre 后重试。"
         case .calibreConversionFailed(let stderr):
             return "calibre 转换失败：\(stderr)"
         }
