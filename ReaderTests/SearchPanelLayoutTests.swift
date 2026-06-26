@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 import SwiftData
 @testable import Reader
 
@@ -120,6 +121,51 @@ final class SearchPanelLayoutTests: XCTestCase {
         XCTAssertEqual(BookRowSelectionStyle.titleHex(theme: .kraft, isSelected: false), "#1A1208")
         XCTAssertEqual(BookRowSelectionStyle.titleHex(theme: .kraft, isSelected: true), "#1A1208")
         XCTAssertEqual(BookRowSelectionStyle.backgroundHex(theme: .kraft, isSelected: true), "#D5C8B0")
+    }
+
+    func testAppBundleDeclaresSupportedDocumentTypesForFinderOpenWith() throws {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let documentTypes = try XCTUnwrap(info["CFBundleDocumentTypes"] as? [[String: Any]])
+        let importedTypes = (info["UTImportedTypeDeclarations"] as? [[String: Any]]) ?? []
+
+        let declaredExtensions = Set(documentTypes.flatMap { entry -> [String] in
+            let legacyExtensions = entry["CFBundleTypeExtensions"] as? [String] ?? []
+            return legacyExtensions.map { $0.lowercased() }
+        })
+        let declaredUTIs = Set(documentTypes.flatMap { entry -> [String] in
+            entry["LSItemContentTypes"] as? [String] ?? []
+        })
+        let importedUTIs = Set(importedTypes.compactMap { $0["UTTypeIdentifier"] as? String })
+
+        XCTAssertTrue(declaredExtensions.isSuperset(of: ["epub", "mobi", "pdf", "txt", "md", "markdown", "azw", "azw3"]))
+        XCTAssertTrue(declaredUTIs.isSuperset(of: [
+            "org.idpf.epub-container",
+            "com.amazon.mobi",
+            "com.amazon.azw",
+            "com.amazon.azw3",
+            "com.adobe.pdf",
+            "public.plain-text",
+            "net.daringfireball.markdown"
+        ]))
+        XCTAssertTrue(importedUTIs.isSuperset(of: ["com.amazon.mobi", "com.amazon.azw", "com.amazon.azw3"]))
+    }
+
+    func testAppDelegatePublishesFinderOpenFiles() {
+        let delegate = AppDelegate()
+        let url = URL(fileURLWithPath: "/tmp/opened-from-finder.mobi")
+        var openedURLs: [URL] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .readerOpenFiles,
+            object: nil,
+            queue: nil
+        ) { notification in
+            openedURLs = notification.userInfo?["urls"] as? [URL] ?? []
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        delegate.application(NSApplication.shared, openFiles: [url.path])
+
+        XCTAssertEqual(openedURLs, [url])
     }
 
     @MainActor
@@ -265,6 +311,39 @@ final class SearchPanelLayoutTests: XCTestCase {
         XCTAssertTrue(hiddenResults.isEmpty)
     }
 
+    @MainActor
+    func testBlockingLoadingOverlayHidesOnceChaptersAreAvailable() async throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let book = Book(title: "MOBI", filePath: "/tmp/book.mobi", fileType: .mobi)
+        let coordinator = RenderCoordinator(
+            book: book,
+            storageService: StorageService(modelContext: container.mainContext)
+        )
+
+        coordinator.isLoading = true
+        XCTAssertTrue(coordinator.shouldShowBlockingLoadingOverlay)
+
+        coordinator.epubMetadata = EPUBMetadata(
+            title: "Book",
+            author: nil,
+            chapters: [
+                EPUBChapter(
+                    title: "Chapter",
+                    htmlContent: "<p>先显示的内容</p>",
+                    fileName: "chapter.xhtml",
+                    spineIndex: 0
+                )
+            ],
+            tocEntries: [],
+            resourceDirectory: FileManager.default.temporaryDirectory
+        )
+
+        XCTAssertFalse(coordinator.shouldShowBlockingLoadingOverlay)
+    }
+
     func testEPUBSearchNavigationScriptCanLocateQueryWithinChapter() {
         XCTAssertTrue(EPUBScripts.bootScript.contains("ReaderGoToSearchResult"))
         XCTAssertTrue(EPUBScripts.bootScript.contains("reader-search-hit"))
@@ -322,5 +401,26 @@ final class SearchPanelLayoutTests: XCTestCase {
         let book = try library.importBook(at: source)
 
         XCTAssertEqual(book.fileType, .md)
+    }
+
+    func testParseCacheUsesShortFilenameSafeKeysForLongBookPaths() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        var nestedDir = tempDir
+        for idx in 0..<6 {
+            nestedDir.appendPathComponent(String(repeating: "longpath\(idx)", count: 8), isDirectory: true)
+        }
+        try FileManager.default.createDirectory(at: nestedDir, withIntermediateDirectories: true)
+        let longNamedBook = nestedDir.appendingPathComponent("活着就为改变世界-" + String(repeating: "very-long-title", count: 12) + ".mobi")
+        try Data("book".utf8).write(to: longNamedBook)
+
+        let key = try XCTUnwrap(BookParseCache.shared.cacheKey(for: longNamedBook))
+
+        XCTAssertLessThanOrEqual(key.count, 96)
+        XCTAssertFalse(key.contains("/"))
+        XCTAssertFalse(key.contains("+"))
+        XCTAssertFalse(key.contains("="))
     }
 }

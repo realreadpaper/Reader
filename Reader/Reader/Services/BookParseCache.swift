@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 struct CachedBook: Codable {
     let title: String
@@ -25,15 +26,18 @@ struct CachedTOCEntry: Codable {
 
 final class BookParseCache {
     static let shared = BookParseCache()
-    private static let cacheFormatVersion = "text-md-rawmd-v6-mobi"
+    private static let cacheFormatVersion = "text-md-rawmd-v10-no-prev"
 
     private let cacheDir: URL
+    private let resourcesDir: URL
     private let fileManager = FileManager.default
 
     private init() {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         cacheDir = appSupport.appendingPathComponent("ParseCache", isDirectory: true)
+        resourcesDir = appSupport.appendingPathComponent("Reader/Resources", isDirectory: true)
         try? fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: resourcesDir, withIntermediateDirectories: true)
     }
 
     func cacheKey(for url: URL) -> String? {
@@ -44,8 +48,12 @@ final class BookParseCache {
         }
         let sizeStr = String(size)
         let dateStr = String(modDate.timeIntervalSince1970)
-        let raw = "\(Self.cacheFormatVersion)-\(sizeStr)-\(dateStr)"
-        return raw.data(using: .utf8)?.base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let pathStr = url.standardizedFileURL.path
+        let raw = "\(Self.cacheFormatVersion)-\(pathStr)-\(sizeStr)-\(dateStr)"
+        guard let data = raw.data(using: .utf8) else { return nil }
+        let digest = SHA256.hash(data: data)
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return "\(Self.cacheFormatVersion)-\(hex)"
     }
 
     func load(from url: URL) -> ParsedBook? {
@@ -70,8 +78,15 @@ final class BookParseCache {
         case "plaintext": renderer = .plaintext
         default: renderer = .html
         }
-        let resourceDir: URL? = cached.resourceDirectoryPath.flatMap {
-            fileManager.fileExists(atPath: $0) ? URL(fileURLWithPath: $0) : nil
+        let resourceDir: URL?
+        if let resourceDirectoryPath = cached.resourceDirectoryPath {
+            guard fileManager.fileExists(atPath: resourceDirectoryPath) else {
+                try? fileManager.removeItem(at: cacheFile)
+                return nil
+            }
+            resourceDir = URL(fileURLWithPath: resourceDirectoryPath)
+        } else {
+            resourceDir = nil
         }
 
         return ParsedBook(
@@ -88,9 +103,9 @@ final class BookParseCache {
 
     func save(_ parsed: ParsedBook, for url: URL) {
         guard parsed.renderer != .pdfKit,
-              parsed.resourceOwner == nil,
               let key = cacheKey(for: url) else { return }
 
+        let resourceDirectory = persistResourceDirectory(parsed.resourceDirectory, key: key)
         let cached = CachedBook(
             title: parsed.title,
             author: parsed.author,
@@ -101,7 +116,7 @@ final class BookParseCache {
             toc: parsed.toc.map {
                 CachedTOCEntry(title: $0.title, chapterIndex: $0.chapterIndex)
             },
-            resourceDirectoryPath: parsed.resourceDirectory?.path,
+            resourceDirectoryPath: resourceDirectory?.path,
             rendererRaw: rawRendererName(parsed.renderer),
             cachedAt: Date()
         )
@@ -115,18 +130,18 @@ final class BookParseCache {
         guard let key = cacheKey(for: url) else { return }
         let cacheFile = cacheDir.appendingPathComponent("\(key).json")
         try? fileManager.removeItem(at: cacheFile)
+        try? fileManager.removeItem(at: persistentResourceDirectory(forKey: key))
     }
 
     func clearAll() {
         try? fileManager.removeItem(at: cacheDir)
+        try? fileManager.removeItem(at: resourcesDir)
         try? fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: resourcesDir, withIntermediateDirectories: true)
     }
 
     var cacheSize: Int {
-        guard let files = try? fileManager.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: [.fileSizeKey]) else {
-            return 0
-        }
-        return files.compactMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }.reduce(0, +)
+        directorySize(cacheDir) + directorySize(resourcesDir)
     }
 
     private func rawRendererName(_ renderer: RendererKind) -> String {
@@ -136,5 +151,39 @@ final class BookParseCache {
         case .markdown: return "markdown"
         case .plaintext: return "plaintext"
         }
+    }
+
+    private func persistResourceDirectory(_ source: URL?, key: String) -> URL? {
+        guard let source,
+              fileManager.fileExists(atPath: source.path) else { return nil }
+
+        let destination = persistentResourceDirectory(forKey: key)
+        do {
+            try? fileManager.removeItem(at: destination)
+            try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.copyItem(at: source, to: destination)
+            return destination
+        } catch {
+            try? fileManager.removeItem(at: destination)
+            return nil
+        }
+    }
+
+    private func persistentResourceDirectory(forKey key: String) -> URL {
+        resourcesDir.appendingPathComponent(key, isDirectory: true)
+    }
+
+    private func directorySize(_ directory: URL) -> Int {
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+
+        var total = 0
+        for case let fileURL as URL in enumerator {
+            total += (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        }
+        return total
     }
 }

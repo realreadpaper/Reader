@@ -38,6 +38,7 @@ struct ContentView: View {
     @State private var library: BookLibrary?
     @State private var importError: String?
     @State private var showImportPicker = false
+    @State private var pendingExternalOpenURLs: [URL] = []
 
     var body: some View {
         Group {
@@ -72,7 +73,12 @@ struct ContentView: View {
                 let service = StorageService(modelContext: modelContext)
                 storageService = service
                 library = BookLibrary(storageService: service)
+                importPendingExternalOpenURLs()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readerOpenFiles)) { notification in
+            let urls = notification.userInfo?["urls"] as? [URL] ?? []
+            handleExternalOpenURLs(urls)
         }
         .fileImporter(
             isPresented: $showImportPicker,
@@ -137,6 +143,30 @@ struct ContentView: View {
     private func expandSidebar() {
         withAnimation(.easeInOut(duration: 0.18)) {
             showSidebar = true
+        }
+    }
+
+    @MainActor
+    private func handleExternalOpenURLs(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        pendingExternalOpenURLs.append(contentsOf: urls)
+        importPendingExternalOpenURLs()
+    }
+
+    @MainActor
+    private func importPendingExternalOpenURLs() {
+        guard let library, !pendingExternalOpenURLs.isEmpty else { return }
+        let urls = pendingExternalOpenURLs
+        pendingExternalOpenURLs.removeAll()
+
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                selectedBook = try library.importBook(at: url)
+            } catch {
+                importError = error.localizedDescription
+            }
         }
     }
 

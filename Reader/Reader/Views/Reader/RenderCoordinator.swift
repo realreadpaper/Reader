@@ -25,6 +25,9 @@ final class RenderCoordinator {
 
     var loadError: String?
     var isLoading: Bool = false
+    var shouldShowBlockingLoadingOverlay: Bool {
+        isLoading && chapters.isEmpty
+    }
 
     private var lastReportedProgress: Double = -1
     private var progressSaveTimer: Timer?
@@ -46,9 +49,10 @@ final class RenderCoordinator {
         BookLog.render.info("load: start fileType=\(fileType.rawValue, privacy: .public) path=\(filePath, privacy: .public)")
 
         do {
+            let fileURL = URL(fileURLWithPath: filePath)
             let parsed = try await Task.detached(priority: .userInitiated) {
                 try await BookParserRegistry.parseWithCache(
-                    fileAt: URL(fileURLWithPath: filePath),
+                    fileAt: fileURL,
                     type: fileType
                 )
             }.value

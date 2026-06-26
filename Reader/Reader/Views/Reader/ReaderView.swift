@@ -62,7 +62,7 @@ struct ReaderView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(themeManager.currentTheme.contentBG)
                             .overlay(alignment: .top) {
-                                if coordinator.isLoading {
+                                if coordinator.shouldShowBlockingLoadingOverlay {
                                     LoadingOverlay()
                                 }
                             }

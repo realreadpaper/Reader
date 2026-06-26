@@ -114,7 +114,7 @@ final class MOBIParser: BookParser {
 
         let decodeDiagnostic = Self.decodeHTMLWithDiagnostic(raw, declaredEncoding: header.preferredTextEncoding)
         BookLog.mobi.notice("decodeHTML: \(decodeDiagnostic.summary, privacy: .public)")
-        let html = decodeDiagnostic.html
+        let html = Self.sanitizeClassicHTMLFragments(decodeDiagnostic.html)
         if html.isEmpty {
             BookLog.mobi.error("parseClassic: html is empty after decoding (raw not utf8/latin1, raw.prefix=\(raw.prefix(16).map(String.init).joined(), privacy: .public))")
         } else {
@@ -126,6 +126,7 @@ final class MOBIParser: BookParser {
             in: html,
             raw: raw,
             declaredEncoding: header.preferredTextEncoding,
+            fullDecodeMethod: decodeDiagnostic.method,
             resourcePaths: resourceMap.pathsByRecordIndex,
             firstImageRecord: header.firstImageRecord
         )
@@ -149,7 +150,13 @@ final class MOBIParser: BookParser {
             chaptersAndTOC = (chapters, toc)
             BookLog.mobi.info("parseClassic: split by filepos TOC into \(chapters.count) chapter pieces toc=\(toc.count)")
         } else {
-            let mappedHTML = rewriteResourceReferences(in: html, resourcePaths: resourceMap.pathsByRecordIndex, firstImageRecord: header.firstImageRecord)
+            let mappedHTML = Self.sanitizeClassicHTMLFragments(
+                rewriteResourceReferences(
+                    in: html,
+                    resourcePaths: resourceMap.pathsByRecordIndex,
+                    firstImageRecord: header.firstImageRecord
+                )
+            )
             let pieces = splitChapters(in: mappedHTML)
             BookLog.mobi.info("parseClassic: split into \(pieces.count) chapter pieces")
             let chapters: [ParsedChapter] = pieces.enumerated().map { idx, piece in
@@ -187,6 +194,18 @@ final class MOBIParser: BookParser {
         huffDecoder: HUFFCDICDecoder?,
         extraDataFlags: UInt32
     ) throws -> Data {
+        if extraDataFlags != 0 {
+            let fullyStrippedPayload = stripTrailingExtraData(from: record, flags: extraDataFlags)
+            if fullyStrippedPayload.count < record.count,
+               let decompressed = try? MOBIDecompressor.decompress(
+                    fullyStrippedPayload,
+                    compression: compression,
+                    huffDecoder: huffDecoder
+               ) {
+                return decompressed
+            }
+        }
+
         let strippedPayload = stripTrailingExtraData(from: record, flags: extraDataFlags & ~1)
         do {
             let decompressed = try MOBIDecompressor.decompress(strippedPayload, compression: compression, huffDecoder: huffDecoder)
@@ -267,6 +286,7 @@ final class MOBIParser: BookParser {
         in html: String,
         raw: Data,
         declaredEncoding: String.Encoding?,
+        fullDecodeMethod: String,
         resourcePaths: [Int: String],
         firstImageRecord: Int?
     ) -> [ClassicFileposSection] {
@@ -288,7 +308,19 @@ final class MOBIParser: BookParser {
             guard start < end else { continue }
 
             let sectionRaw = raw.subdata(in: start..<end)
-            let decoded = Self.decodeHTMLWithDiagnostic(sectionRaw, declaredEncoding: declaredEncoding).html
+            let sectionDiagnostic = Self.decodeHTMLWithDiagnostic(sectionRaw, declaredEncoding: declaredEncoding)
+            let decoded: String
+            if sectionDiagnostic.replacementCharacterCount > 0,
+               declaredEncoding == .utf8,
+               fullDecodeMethod == "utf8-html-repair-drop-invalid",
+               let repaired = Self.repairInvalidUTF8HTMLBytesByDroppingSparseInvalidBytes(
+                    sectionRaw,
+                    maxDroppedByteRatioDivisor: 20
+               ) {
+                decoded = repaired
+            } else {
+                decoded = sectionDiagnostic.html
+            }
             let rewritten = rewriteResourceReferences(
                 in: decoded,
                 resourcePaths: resourcePaths,
@@ -308,7 +340,27 @@ final class MOBIParser: BookParser {
         } else if let headClose = body.range(of: "</head>", options: .caseInsensitive) {
             body = String(body[headClose.upperBound...])
         }
-        return body.trimmingCharacters(in: .whitespacesAndNewlines)
+        body = Self.stripLeadingOrphanTagFragment(body)
+        body = Self.stripTrailingOrphanTagFragment(body)
+        return Self.sanitizeClassicHTMLFragments(body).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// filepos 偏移在真实 MOBI 里经常落在前一个标签的中间，留下 `r">`, `k/>`, `/p>`,
+    /// `bp:pagebreak/>` 或被切断的多字节字符残片。丢掉第一个合法标签起点之前的所有内容。
+    private static func stripLeadingOrphanTagFragment(_ html: String) -> String {
+        guard let firstTagStart = html.range(of: #"<[a-zA-Z/!?]"#, options: .regularExpression) else {
+            return ""
+        }
+        return String(html[firstTagStart.lowerBound...])
+    }
+
+    /// filepos 切割可能把下一个标签的开头（如 `<mbp:pagebrea`, `<m`）或被切断的 UTF-8 字节
+    /// （如 `ä`）留在章节末尾。丢掉最后一个 `>` 之后的所有内容。
+    private static func stripTrailingOrphanTagFragment(_ html: String) -> String {
+        guard let lastClose = html.range(of: ">", options: .backwards) else {
+            return ""
+        }
+        return String(html[..<lastClose.upperBound])
     }
 
     private func extractClassicFileposTOC(from html: String) -> [ClassicFileposTOCEntry] {
@@ -448,6 +500,9 @@ final class MOBIParser: BookParser {
 
     private func paginatePieces(_ pieces: [String]) -> [String] {
         pieces.flatMap { smartSplitBySize($0) }
+            .map { Self.stripLeadingOrphanTagFragment($0) }
+            .map { Self.stripTrailingOrphanTagFragment($0) }
+            .map { Self.sanitizeClassicHTMLFragments($0) }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
@@ -641,6 +696,11 @@ final class MOBIParser: BookParser {
             let recordIndex = firstImageRecord + offset
             guard let path = resourcePaths[recordIndex] else { continue }
             result = result.replacingOccurrences(
+                of: #"\b(src|href|xlink:href)\s*=\s*(["'])(recindex|kindle:embed):\s*0*"# + "\(offset)" + #"\2"#,
+                with: "$1=$2\(path)$2",
+                options: .regularExpression
+            )
+            result = result.replacingOccurrences(
                 of: "recindex:\\s*0*\(offset)",
                 with: path,
                 options: .regularExpression
@@ -811,6 +871,16 @@ final class MOBIParser: BookParser {
                     sample: diagnosticSample(from: repaired)
                 )
             }
+            if let repaired = repairInvalidUTF8HTMLBytesByDroppingSparseInvalidBytes(raw) {
+                return HTMLDecodeDiagnostic(
+                    html: repaired,
+                    method: "utf8-html-repair-drop-invalid",
+                    declaredEncoding: declaredName,
+                    rawByteCount: raw.count,
+                    replacementCharacterCount: replacementCount(in: repaired),
+                    sample: diagnosticSample(from: repaired)
+                )
+            }
             let lossyUTF8 = String(decoding: raw, as: UTF8.self)
             let lossyUTF8ReplacementCount = replacementCount(in: lossyUTF8)
             let maxSparseUTF8Replacements = max(1, raw.count / 200)
@@ -936,6 +1006,44 @@ final class MOBIParser: BookParser {
 
         let maxRepairableBytes = max(1, raw.count / 20)
         guard repairedByteCount <= maxRepairableBytes else { return nil }
+        return html
+    }
+
+    private static func repairInvalidUTF8HTMLBytesByDroppingSparseInvalidBytes(
+        _ raw: Data,
+        maxDroppedByteRatioDivisor: Int = 200
+    ) -> String? {
+        let bytes = [UInt8](raw)
+        guard !bytes.isEmpty else { return nil }
+
+        var html = ""
+        html.reserveCapacity(raw.count)
+        var droppedByteCount = 0
+        var segmentStart = 0
+        var index = 0
+
+        while index < bytes.count {
+            if let length = validUTF8SequenceLength(in: bytes, at: index) {
+                index += length
+                continue
+            }
+
+            if segmentStart < index {
+                html.append(String(decoding: bytes[segmentStart..<index], as: UTF8.self))
+            }
+            droppedByteCount += 1
+            index += 1
+            segmentStart = index
+        }
+
+        guard droppedByteCount > 0 else { return nil }
+        let divisor = max(1, maxDroppedByteRatioDivisor)
+        let maxDroppableBytes = max(1, raw.count / divisor)
+        guard droppedByteCount <= maxDroppableBytes else { return nil }
+
+        if segmentStart < bytes.count {
+            html.append(String(decoding: bytes[segmentStart..<bytes.count], as: UTF8.self))
+        }
         return html
     }
 
@@ -1108,6 +1216,25 @@ final class MOBIParser: BookParser {
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
     }
+
+    private static func sanitizeClassicHTMLFragments(_ html: String) -> String {
+        var cleaned = html
+        let orphanedTagTailPatterns = [
+            #"(?i)\br">\s*k/>"#,
+            #"(?i)\bnter">\s*reak/>"#,
+            #"(?i)\benter">\s*break/>"#
+        ]
+
+        for pattern in orphanedTagTailPatterns {
+            cleaned = cleaned.replacingOccurrences(
+                of: pattern,
+                with: "",
+                options: .regularExpression
+            )
+        }
+
+        return cleaned
+    }
 }
 
 /// 从解压后的 record 尾部剥除 trailing extra data（overlap + size entry）
@@ -1121,15 +1248,16 @@ func stripTrailingExtraData(from record: Data, flags: UInt32) -> Data {
     var end = record.count
 
     if flags != 0 {
-        for bit in stride(from: 31, through: 0, by: -1) where (flags & (1 << UInt32(bit))) != 0 {
+        for bit in 0..<32 where (flags & (1 << UInt32(bit))) != 0 {
             guard end > 0 else { return Data() }
             if bit == 0 {
                 let overlapLength = Int(record[end - 1] & 0x03)
-                guard overlapLength <= end else { return Data() }
+                guard overlapLength + 1 <= end else { return Data() }
                 end -= overlapLength
+                end -= 1
             } else {
                 guard let newEnd = extraDataStart(in: record, endingAt: end) else {
-                    break
+                    continue
                 }
                 end = newEnd
             }

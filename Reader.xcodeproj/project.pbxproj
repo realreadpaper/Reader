@@ -116,6 +116,7 @@
 		7430B611700E533ED8139530 /* BookRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRowView.swift; sourceTree = "<group>"; };
 		748B97F5199C987AB12435BF /* SearchPanelLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPanelLayoutTests.swift; sourceTree = "<group>"; };
 		760000652DF1850431984E99 /* ReaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderApp.swift; sourceTree = "<group>"; };
+		76A105D5F0C943A09DA95092 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7632961E6E034D8A739F7369 /* BookLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookLog.swift; sourceTree = "<group>"; };
 		7D1BE4C99722DBE37CC537AA /* Reader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Reader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7E103CF815E06F398BD890E8 /* PalmDBReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PalmDBReader.swift; sourceTree = "<group>"; };
@@ -226,6 +227,7 @@
 			isa = PBXGroup;
 			children = (
 				F20EBD68B492D9562C3877F1 /* Reader.entitlements */,
+				76A105D5F0C943A09DA95092 /* Info.plist */,
 				760000652DF1850431984E99 /* ReaderApp.swift */,
 				F21320226AC43D3B902B6840 /* Models */,
 				2D2623AFFD3300309EDC2A7E /* Resources */,
@@ -701,8 +703,8 @@
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Reader/Reader/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Reader;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -742,8 +744,8 @@
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Reader/Reader/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Reader;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				LD_RUNPATH_SEARCH_PATHS = (

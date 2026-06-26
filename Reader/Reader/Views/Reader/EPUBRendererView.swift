@@ -298,7 +298,32 @@ struct EPUBWebView: NSViewRepresentable {
                 fontSize: parent.fontSize,
                 lineHeight: parent.lineHeight
             )
-            webView?.loadHTMLString(wrapped, baseURL: resourceDirectory)
+            loadWrappedHTML(wrapped, resourceDirectory: resourceDirectory)
+        }
+
+        /// 写入文件后通过 `loadFileURL(_:allowingReadAccessTo:)` 加载。
+        /// `loadHTMLString(_:baseURL:)` 在 macOS WKWebView 中对 file:// 资源解析不够稳定，
+        /// MOBI 这种把图片散在 resourceDirectory/images 下、HTML 路径为合成值的场景容易图片加载失败。
+        private func loadWrappedHTML(_ wrapped: String, resourceDirectory: URL?) {
+            guard let webView else { return }
+            let dir: URL
+            if let resourceDirectory, FileManager.default.fileExists(atPath: resourceDirectory.path) {
+                dir = resourceDirectory
+            } else {
+                let tempDir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("ReaderWrappedHTML", isDirectory: true)
+                try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                dir = tempDir
+            }
+            let htmlFile = dir.appendingPathComponent("__reader_book.html")
+            do {
+                try wrapped.data(using: .utf8)?.write(to: htmlFile, options: .atomic)
+            } catch {
+                BookLog.render.error("loadWrappedHTML: failed to write html file: \(error.localizedDescription, privacy: .public)")
+                webView.loadHTMLString(wrapped, baseURL: nil)
+                return
+            }
+            webView.loadFileURL(htmlFile, allowingReadAccessTo: dir)
         }
 
         func goToChapter(_ index: Int) {

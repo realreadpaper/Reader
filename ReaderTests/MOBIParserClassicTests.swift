@@ -27,6 +27,40 @@ final class MOBIParserClassicTests: XCTestCase {
         }
     }
 
+    func testParseLocalJobsMemorialMOBIHasNoOrphanTagFragmentsAtChapterBoundaries() async throws {
+        let path = ProcessInfo.processInfo.environment["READER_LOCAL_MOBI_FIXTURE"]
+            ?? "/Users/hejianglong/Downloads/941-活着就为改变世界：乔布斯纪念套装四册/活着就为改变世界：乔布斯纪念套装四册（活着就为改变世界+追随内心+乔布斯的魔力演讲+非同凡“想”）(etc.).mobi"
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("Local MOBI fixture not present")
+        }
+
+        BookParseCache.shared.invalidate(for: url)
+        let parsed = try await MOBIParser().parse(fileAt: url)
+        XCTAssertGreaterThan(parsed.chapters.count, 0)
+
+        let tagStart = try NSRegularExpression(pattern: #"^[a-zA-Z/!?]"#, options: [])
+        var badHeads: [String] = []
+        var badTails: [String] = []
+        for (idx, chapter) in parsed.chapters.enumerated() {
+            let body = chapter.bodyHTML.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !body.isEmpty else { continue }
+            let headNS = body as NSString
+            if headNS.length > 0 {
+                let firstChar = headNS.substring(with: NSRange(location: 0, length: 1))
+                if tagStart.firstMatch(in: firstChar, range: NSRange(location: 0, length: 1)) == nil
+                    && firstChar != "<" {
+                    badHeads.append("[ch \(idx)] head=\(String(body.prefix(50)))")
+                }
+            }
+            if body.last != ">" {
+                badTails.append("[ch \(idx)] tail=\(String(body.suffix(50)))")
+            }
+        }
+        XCTAssertTrue(badHeads.isEmpty, "orphan chapter heads:\n\(badHeads.prefix(10).joined(separator: "\n"))")
+        XCTAssertTrue(badTails.isEmpty, "orphan chapter tails:\n\(badTails.prefix(10).joined(separator: "\n"))")
+    }
+
     func testParseLocalJobsMemorialMOBIIfAvailable() async throws {
         let path = ProcessInfo.processInfo.environment["READER_LOCAL_MOBI_FIXTURE"]
             ?? "/Users/hejianglong/Downloads/941-活着就为改变世界：乔布斯纪念套装四册/活着就为改变世界：乔布斯纪念套装四册（活着就为改变世界+追随内心+乔布斯的魔力演讲+非同凡“想”）(etc.).mobi"
@@ -42,6 +76,11 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertFalse(parsed.chapters.isEmpty)
         XCTAssertFalse(parsed.toc.isEmpty)
         XCTAssertTrue(parsed.chapters.contains { !$0.bodyHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        let combinedHTML = parsed.chapters.map(\.bodyHTML).joined(separator: "\n")
+        XCTAssertFalse(combinedHTML.contains("\u{FFFD}"))
+        XCTAssertFalse(combinedHTML.contains("r\">\nk/>"))
+        XCTAssertFalse(combinedHTML.contains("r\">\r\nk/>"))
+        XCTAssertFalse(combinedHTML.contains("nter\">reak/>"))
         let malformedPrefix = parsed.chapters
             .map { $0.bodyHTML.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { $0.hasPrefix("de>") }
@@ -113,6 +152,33 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertEqual(parsed.toc.last?.title, "第 \(parsed.chapters.count) 页")
     }
 
+    func testParseClassicMOBIDropsOrphanedImageAndBreakTagTails() async throws {
+        let html = """
+        <html><body>
+        <p>图片前正文。</p>
+        r">
+        k/>
+        <p>换行前正文。</p>
+        nter">reak/>
+        <p>另一处正文。</p>
+        enter">break/>
+        <p>图片后正文。</p>
+        </body></html>
+        """
+        let url = try makeClassicMOBIFixture(html: html)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+        let combinedHTML = parsed.chapters.map(\.bodyHTML).joined(separator: "\n")
+
+        XCTAssertTrue(combinedHTML.contains("图片前正文"))
+        XCTAssertTrue(combinedHTML.contains("图片后正文"))
+        XCTAssertFalse(combinedHTML.contains("r\">\nk/>"))
+        XCTAssertFalse(combinedHTML.contains("r\">\r\nk/>"))
+        XCTAssertFalse(combinedHTML.contains("nter\">reak/>"))
+        XCTAssertFalse(combinedHTML.contains("enter\">break/>"))
+    }
+
     func testParseClassicMOBIStillWorksWithContainerDiagnosticsEnabled() async throws {
         let html = "<html><body><h1>Diagnostics</h1><p>Parser behavior is unchanged.</p></body></html>"
         let url = try makeClassicMOBIFixture(html: html)
@@ -146,6 +212,47 @@ final class MOBIParserClassicTests: XCTestCase {
         XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("TRAILING-NOISE"))
     }
 
+    func testParseClassicMOBIStripsCombinedVBRAndOverlapBeforeDecoding() async throws {
+        let url = try makeClassicMOBIFixture(
+            htmlChunks: ["<html><body><p>正文不能混入组合尾数据。</p></body></html>"],
+            extraDataFlags: 0x0003,
+            trailingTextRecordData: [
+                mobiTrailingExtraData(payload: Data("<span>VBR-NOISE</span>".utf8))
+                    + Data("X".utf8)
+                    + Data([0x01])
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+        let html = parsed.chapters.map(\.bodyHTML).joined()
+
+        XCTAssertTrue(html.contains("正文不能混入组合尾数据"))
+        XCTAssertFalse(html.contains("VBR-NOISE"))
+        XCTAssertFalse(html.contains(">X"))
+    }
+
+    func testStripTrailingExtraDataRemovesOverlapBeforeVBRPayload() {
+        var record = Data("VISIBLE".utf8)
+        record.append(mobiTrailingExtraData(payload: Data("VBR".utf8)))
+        record.append(Data("X".utf8))
+        record.append(0x01)
+
+        let stripped = stripTrailingExtraData(from: record, flags: 0x0003)
+
+        XCTAssertEqual(String(data: stripped, encoding: .utf8), "VISIBLE")
+    }
+
+    func testStripTrailingExtraDataStillRemovesOverlapWhenVBRPayloadIsAbsent() {
+        var record = Data("VISIBLE".utf8)
+        record.append(Data("X".utf8))
+        record.append(0x01)
+
+        let stripped = stripTrailingExtraData(from: record, flags: 0x0003)
+
+        XCTAssertEqual(String(data: stripped, encoding: .utf8), "VISIBLE")
+    }
+
     func testParseClassicMOBIRewritesRecindexImagesToResourceFiles() async throws {
         let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00])
         let html = """
@@ -175,6 +282,45 @@ final class MOBIParserClassicTests: XCTestCase {
 
         XCTAssertTrue(parsed.chapters[0].bodyHTML.contains(#"src="images/record-2.png""#))
         XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("recindex=\"00000\""))
+    }
+
+    func testParseClassicMOBIRewritesSVGXlinkResourceReferences() async throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00])
+        let html = """
+        <html><body><svg><image xlink:href="kindle:embed:00000"/></svg></body></html>
+        """
+        let url = try makeClassicMOBIFixture(html: html, resourceRecords: [png])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try await MOBIParser().parse(fileAt: url)
+
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains(#"xlink:href="images/record-2.png""#))
+        XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("kindle:embed:"))
+    }
+
+    func testParseCachePersistsMOBIResourceDirectory() async throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00])
+        let html = """
+        <html><body><h1>Cached Images</h1><img src="recindex:00000"/></body></html>
+        """
+        let url = try makeClassicMOBIFixture(html: html, resourceRecords: [png])
+        defer {
+            BookParseCache.shared.invalidate(for: url)
+            try? FileManager.default.removeItem(at: url)
+        }
+        BookParseCache.shared.invalidate(for: url)
+
+        var parsed: ParsedBook? = try await BookParserRegistry.parseWithCache(fileAt: url, type: .mobi)
+        let transientDirectory = try XCTUnwrap(parsed?.resourceDirectory)
+        parsed = nil
+
+        let cached = try XCTUnwrap(BookParseCache.shared.load(from: url))
+        let persistentDirectory = try XCTUnwrap(cached.resourceDirectory)
+        let cachedImageURL = persistentDirectory.appendingPathComponent("images/record-2.png")
+
+        XCTAssertNotEqual(persistentDirectory.path, transientDirectory.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachedImageURL.path))
+        XCTAssertTrue(cached.chapters[0].bodyHTML.contains("images/record-2.png"))
     }
 
     func testParseClassicMOBIHonorsLastImageRecordWhenWritingResources() async throws {
@@ -293,10 +439,12 @@ final class MOBIParserClassicTests: XCTestCase {
 
         let diagnostic = MOBIParser.decodeHTMLWithDiagnostic(raw, declaredEncoding: .utf8)
 
-        XCTAssertEqual(diagnostic.method, "utf8-lossy")
+        XCTAssertEqual(diagnostic.method, "utf8-html-repair-drop-invalid")
+        XCTAssertEqual(diagnostic.replacementCharacterCount, 0)
         XCTAssertTrue(diagnostic.html.contains("长尾理论"))
         XCTAssertTrue(diagnostic.html.contains("互联网时代的选择和传播"))
         XCTAssertTrue(diagnostic.html.contains("继续保持中文可读"))
+        XCTAssertFalse(diagnostic.html.contains("�"))
         XCTAssertFalse(diagnostic.html.contains("闀垮熬鐞嗚"))
     }
 
