@@ -91,7 +91,7 @@ final class MOBIParser: BookParser {
 
         let huffDecoder: HUFFCDICDecoder?
         if header.compression == .huff {
-            huffDecoder = try HUFFCDICDecoder(records: Array(pdb.records.dropFirst(last + 1)))
+            huffDecoder = try makeHUFFDecoder(pdb: pdb, header: header, fallbackStart: last + 1)
         } else {
             huffDecoder = nil
         }
@@ -99,12 +99,16 @@ final class MOBIParser: BookParser {
         var raw = Data()
         for i in first...last {
             let record = pdb.records[i]
-            let decompressed = try MOBIDecompressor.decompress(record, compression: header.compression, huffDecoder: huffDecoder)
-            let part = stripTrailingExtraData(from: decompressed, flags: header.extraDataFlags)
+            let part = try decompressTextRecord(
+                record,
+                compression: header.compression,
+                huffDecoder: huffDecoder,
+                extraDataFlags: header.extraDataFlags
+            )
             raw.append(part)
         }
         if header.textLength > 0, raw.count > header.textLength {
-            raw = truncateToUTF8Boundary(raw, maxLength: header.textLength)
+            raw = truncateToTextLengthIfOnlyPadding(raw, textLength: header.textLength)
         }
         BookLog.mobi.info("parseClassic: decompressed \(raw.count) bytes total")
 
@@ -118,34 +122,242 @@ final class MOBIParser: BookParser {
         }
 
         let resourceMap = try writeImageResources(from: pdb, header: header, bookID: UUID().uuidString)
-        let mappedHTML = rewriteResourceReferences(in: html, resourcePaths: resourceMap.pathsByRecordIndex, firstImageRecord: header.firstImageRecord)
-        let pieces = splitChapters(in: mappedHTML)
-        BookLog.mobi.info("parseClassic: split into \(pieces.count) chapter pieces")
-        let chapters: [ParsedChapter] = pieces.enumerated().map { idx, piece in
-            let title = extractTitle(from: piece) ?? "第 \(idx + 1) 页"
-            return ParsedChapter(
-                title: title,
-                bodyHTML: piece,
-                sourcePath: "classic-mobi-fragment-\(idx)"
-            )
+        let classicSections = splitByClassicFileposTOC(
+            in: html,
+            raw: raw,
+            declaredEncoding: header.preferredTextEncoding,
+            resourcePaths: resourceMap.pathsByRecordIndex,
+            firstImageRecord: header.firstImageRecord
+        )
+        let chaptersAndTOC: (chapters: [ParsedChapter], toc: [ParsedTOCEntry])
+        if classicSections.count >= 3 {
+            var chapters: [ParsedChapter] = []
+            var toc: [ParsedTOCEntry] = []
+            for section in classicSections {
+                let pages = paginatePieces([section.html])
+                let chapterIndex = chapters.count
+                toc.append(ParsedTOCEntry(title: section.title, chapterIndex: chapterIndex))
+                for (pageIndex, page) in pages.enumerated() {
+                    let title = pageIndex == 0 ? section.title : "\(section.title) · \(pageIndex + 1)"
+                    chapters.append(ParsedChapter(
+                        title: title,
+                        bodyHTML: page,
+                        sourcePath: "classic-mobi-filepos-\(chapterIndex)-\(pageIndex)"
+                    ))
+                }
+            }
+            chaptersAndTOC = (chapters, toc)
+            BookLog.mobi.info("parseClassic: split by filepos TOC into \(chapters.count) chapter pieces toc=\(toc.count)")
+        } else {
+            let mappedHTML = rewriteResourceReferences(in: html, resourcePaths: resourceMap.pathsByRecordIndex, firstImageRecord: header.firstImageRecord)
+            let pieces = splitChapters(in: mappedHTML)
+            BookLog.mobi.info("parseClassic: split into \(pieces.count) chapter pieces")
+            let chapters: [ParsedChapter] = pieces.enumerated().map { idx, piece in
+                let title = extractTitle(from: piece) ?? "第 \(idx + 1) 页"
+                return ParsedChapter(
+                    title: title,
+                    bodyHTML: piece,
+                    sourcePath: "classic-mobi-fragment-\(idx)"
+                )
+            }
+            let toc = chapters.enumerated().map { idx, ch in
+                ParsedTOCEntry(title: ch.title, chapterIndex: idx)
+            }
+            chaptersAndTOC = (chapters, toc)
         }
 
         let cover = coverImage(from: pdb, header: header)
-
-        let toc = chapters.enumerated().map { idx, ch in
-            ParsedTOCEntry(title: ch.title, chapterIndex: idx)
-        }
 
         return ParsedBook(
             title: header.title,
             author: header.author,
             coverImage: cover,
-            chapters: chapters,
-            toc: toc,
+            chapters: chaptersAndTOC.chapters,
+            toc: chaptersAndTOC.toc,
             resourceDirectory: resourceMap.directory,
             renderer: .html,
-            pdfDocument: nil
+            pdfDocument: nil,
+            resourceOwner: resourceMap.directory.map { ParsedResourceDirectoryOwner(directory: $0) }
         )
+    }
+
+    private func decompressTextRecord(
+        _ record: Data,
+        compression: MOBICompression,
+        huffDecoder: HUFFCDICDecoder?,
+        extraDataFlags: UInt32
+    ) throws -> Data {
+        let strippedPayload = stripTrailingExtraData(from: record, flags: extraDataFlags & ~1)
+        do {
+            let decompressed = try MOBIDecompressor.decompress(strippedPayload, compression: compression, huffDecoder: huffDecoder)
+            return stripTrailingExtraData(from: decompressed, flags: extraDataFlags & 1)
+        } catch {
+            if let recovered = recoverTrailingTextRecord(
+                strippedPayload,
+                compression: compression,
+                huffDecoder: huffDecoder,
+                extraDataFlags: extraDataFlags
+            ) {
+                return recovered
+            }
+            throw error
+        }
+    }
+
+    private func recoverTrailingTextRecord(
+        _ payload: Data,
+        compression: MOBICompression,
+        huffDecoder: HUFFCDICDecoder?,
+        extraDataFlags: UInt32
+    ) -> Data? {
+        guard extraDataFlags != 0, payload.count > 1 else { return nil }
+        let lowerBound = max(0, payload.count - 128)
+        for end in stride(from: payload.count, through: lowerBound, by: -1) {
+            let candidate = payload.subdata(in: 0..<end)
+            guard let decompressed = try? MOBIDecompressor.decompress(candidate, compression: compression, huffDecoder: huffDecoder) else {
+                continue
+            }
+            return stripTrailingExtraData(from: decompressed, flags: extraDataFlags & 1)
+        }
+        return nil
+    }
+
+    private func makeHUFFDecoder(pdb: PalmDatabase, header: MOBIHeader, fallbackStart: Int) throws -> HUFFCDICDecoder {
+        if let index = header.huffRecordIndex,
+           let count = header.huffRecordCount {
+            guard index >= 0,
+                  count > 0,
+                  index + count <= pdb.records.count else {
+                throw BookParseError.corruptedFile(detail: "HUFF/CDIC dictionary record range invalid")
+            }
+            return try HUFFCDICDecoder(records: Array(pdb.records[index..<(index + count)]))
+        }
+
+        var candidates: [[Data]] = []
+        if fallbackStart < pdb.records.count {
+            let legacy = Array(pdb.records[fallbackStart..<pdb.records.count])
+            candidates.append(legacy)
+        }
+
+        var lastError: Error?
+        for records in candidates where !records.isEmpty {
+            do {
+                return try HUFFCDICDecoder(records: records)
+            } catch {
+                lastError = error
+            }
+        }
+        if let lastError {
+            throw lastError
+        }
+        throw BookParseError.corruptedFile(detail: "HUFF/CDIC dictionary records missing")
+    }
+
+    private struct ClassicFileposSection {
+        let title: String
+        let html: String
+    }
+
+    private struct ClassicFileposTOCEntry {
+        let title: String
+        let filepos: Int
+    }
+
+    private func splitByClassicFileposTOC(
+        in html: String,
+        raw: Data,
+        declaredEncoding: String.Encoding?,
+        resourcePaths: [Int: String],
+        firstImageRecord: Int?
+    ) -> [ClassicFileposSection] {
+        let entries = extractClassicFileposTOC(from: html)
+        guard entries.count >= 3 else { return [] }
+
+        var sections: [ClassicFileposSection] = []
+        for (idx, entry) in entries.enumerated() {
+            let start = entry.filepos
+            guard start >= 0, start < raw.count else { continue }
+
+            let end: Int
+            if idx + 1 < entries.count {
+                let next = entries[idx + 1].filepos
+                end = next > start ? min(next, raw.count) : raw.count
+            } else {
+                end = raw.count
+            }
+            guard start < end else { continue }
+
+            let sectionRaw = raw.subdata(in: start..<end)
+            let decoded = Self.decodeHTMLWithDiagnostic(sectionRaw, declaredEncoding: declaredEncoding).html
+            let rewritten = rewriteResourceReferences(
+                in: decoded,
+                resourcePaths: resourcePaths,
+                firstImageRecord: firstImageRecord
+            )
+            let body = cleanClassicFileposSectionHTML(rewritten)
+            guard !body.isEmpty else { continue }
+            sections.append(ClassicFileposSection(title: entry.title, html: body))
+        }
+        return sections
+    }
+
+    private func cleanClassicFileposSectionHTML(_ html: String) -> String {
+        var body = html.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let bodyOpen = body.range(of: "<body[^>]*>", options: [.regularExpression, .caseInsensitive]) {
+            body = String(body[bodyOpen.upperBound...])
+        } else if let headClose = body.range(of: "</head>", options: .caseInsensitive) {
+            body = String(body[headClose.upperBound...])
+        }
+        return body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func extractClassicFileposTOC(from html: String) -> [ClassicFileposTOCEntry] {
+        var entries: [ClassicFileposTOCEntry] = []
+        var seen = Set<Int>()
+        var searchStart = html.startIndex
+
+        while let fileposKey = html.range(of: "filepos", options: .caseInsensitive, range: searchStart..<html.endIndex) {
+            searchStart = fileposKey.upperBound
+            guard let tagStart = html[..<fileposKey.lowerBound].lastIndex(of: "<"),
+                  html[tagStart...].prefix(2).lowercased() == "<a",
+                  let equals = html.range(of: "=", range: fileposKey.upperBound..<html.endIndex),
+                  let anchorEnd = html.range(of: ">", range: equals.upperBound..<html.endIndex),
+                  let anchorClose = html.range(of: "</a>", options: .caseInsensitive, range: anchorEnd.upperBound..<html.endIndex) else {
+                continue
+            }
+
+            var cursor = equals.upperBound
+            while cursor < anchorEnd.lowerBound, html[cursor].isWhitespace || html[cursor] == "\"" || html[cursor] == "'" {
+                cursor = html.index(after: cursor)
+            }
+            while cursor < anchorEnd.lowerBound, html[cursor] == "0" {
+                cursor = html.index(after: cursor)
+            }
+            let digitsStart = cursor
+            while cursor < anchorEnd.lowerBound, html[cursor].isNumber {
+                cursor = html.index(after: cursor)
+            }
+            guard digitsStart < cursor,
+                  let filepos = Int(html[digitsStart..<cursor]),
+                  !seen.contains(filepos) else {
+                continue
+            }
+
+            let anchorTitle = String(html[anchorEnd.upperBound..<anchorClose.lowerBound])
+            var titleHTML = anchorTitle
+            if let titleCellStart = html.range(of: "<td", options: .caseInsensitive, range: anchorClose.upperBound..<html.endIndex),
+               let titleCellOpen = html.range(of: ">", range: titleCellStart.upperBound..<html.endIndex),
+               let titleCellClose = html.range(of: "</td>", options: .caseInsensitive, range: titleCellOpen.upperBound..<html.endIndex),
+               html.distance(from: anchorClose.upperBound, to: titleCellClose.upperBound) < 600 {
+                titleHTML = String(html[titleCellOpen.upperBound..<titleCellClose.lowerBound])
+            }
+
+            guard let title = cleanHTMLText(titleHTML) else { continue }
+            seen.insert(filepos)
+            entries.append(ClassicFileposTOCEntry(title: title, filepos: filepos))
+        }
+
+        return entries.sorted { $0.filepos < $1.filepos }
     }
 
     private func splitChapters(in html: String) -> [String] {
@@ -244,6 +456,7 @@ final class MOBIParser: BookParser {
     private func smartSplitBySize(_ html: String) -> [String] {
         let maxChunkSize = Self.targetHTMLPageSize
         var chunks: [String] = []
+        var chunkStart = html.startIndex
         var lastParagraphEnd = html.startIndex
 
         let paragraphEnders = ["</p>", "</div>", "</blockquote>", "</li>", "</td>"]
@@ -265,23 +478,60 @@ final class MOBIParser: BookParser {
             }
 
             let candidateEnd = range.upperBound
-            let distance = html.distance(from: lastParagraphEnd, to: candidateEnd)
-            if distance > maxChunkSize {
-                let chunk = String(html[lastParagraphEnd..<candidateEnd])
+            let distance = html[chunkStart..<candidateEnd].utf8.count
+            if distance > maxChunkSize, lastParagraphEnd > chunkStart {
+                let chunk = String(html[chunkStart..<lastParagraphEnd])
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !chunk.isEmpty {
                     chunks.append(chunk)
                 }
-                lastParagraphEnd = candidateEnd
+                chunkStart = lastParagraphEnd
             }
+            lastParagraphEnd = candidateEnd
             searchStart = candidateEnd
         }
 
-        if lastParagraphEnd < html.endIndex {
-            let remaining = String(html[lastParagraphEnd..<html.endIndex])
+        if chunkStart < html.endIndex {
+            let remaining = String(html[chunkStart..<html.endIndex])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !remaining.isEmpty {
                 chunks.append(remaining)
+            }
+        }
+
+        let result = chunks.isEmpty ? [html] : chunks
+        return result.flatMap { chunk in
+            chunk.utf8.count > maxChunkSize ? hardSplitByUTF8ByteSize(chunk, maxBytes: maxChunkSize) : [chunk]
+        }
+    }
+
+    private func hardSplitByUTF8ByteSize(_ html: String, maxBytes: Int) -> [String] {
+        guard maxBytes > 0, html.utf8.count > maxBytes else { return [html] }
+
+        var chunks: [String] = []
+        var chunkStart = html.startIndex
+        var currentBytes = 0
+        var index = html.startIndex
+
+        while index < html.endIndex {
+            let next = html.index(after: index)
+            let charBytes = html[index..<next].utf8.count
+            if currentBytes > 0, currentBytes + charBytes > maxBytes {
+                let chunk = String(html[chunkStart..<index]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !chunk.isEmpty {
+                    chunks.append(chunk)
+                }
+                chunkStart = index
+                currentBytes = 0
+            }
+            currentBytes += charBytes
+            index = next
+        }
+
+        if chunkStart < html.endIndex {
+            let chunk = String(html[chunkStart..<html.endIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !chunk.isEmpty {
+                chunks.append(chunk)
             }
         }
 
@@ -304,6 +554,12 @@ final class MOBIParser: BookParser {
         if let range = html.range(of: "<h3[^>]*>(.*?)</h3>", options: .regularExpression) {
             let inner = String(html[range])
             if let openClose = inner.range(of: ">"), let close = inner.range(of: "</h3>") {
+                return cleanHTMLText(String(inner[openClose.upperBound..<close.lowerBound]))
+            }
+        }
+        if let range = html.range(of: "<font\\s+[^>]*size=[\"']?[67][\"']?[^>]*>(.*?)</font>", options: [.regularExpression, .caseInsensitive]) {
+            let inner = String(html[range])
+            if let openClose = inner.range(of: ">"), let close = inner.range(of: "</font>") {
                 return cleanHTMLText(String(inner[openClose.upperBound..<close.lowerBound]))
             }
         }
@@ -347,14 +603,17 @@ final class MOBIParser: BookParser {
         guard let firstImage = header.firstImageRecord else {
             return MOBIResourceMap(directory: nil, pathsByRecordIndex: [:])
         }
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ReaderMOBI", isDirectory: true)
+        let dir = Self.resourceRootDirectory()
             .appendingPathComponent(bookID, isDirectory: true)
         let imagesDir = dir.appendingPathComponent("images", isDirectory: true)
-        try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
 
         var pathsByRecordIndex: [Int: String] = [:]
-        for i in firstImage..<pdb.records.count where i < pdb.records.count {
+        let lastImage = min(header.lastImageRecord ?? (pdb.records.count - 1), pdb.records.count - 1)
+        guard firstImage <= lastImage else {
+            return MOBIResourceMap(directory: nil, pathsByRecordIndex: [:])
+        }
+        try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
+        for i in firstImage...lastImage {
             let data = pdb.records[i]
             if isImage(data) {
                 let ext = imageExtension(for: data) ?? "img"
@@ -362,6 +621,9 @@ final class MOBIParser: BookParser {
                 try data.write(to: dir.appendingPathComponent(relativePath))
                 pathsByRecordIndex[i] = relativePath
             }
+        }
+        if pathsByRecordIndex.isEmpty {
+            try? FileManager.default.removeItem(at: dir)
         }
         return MOBIResourceMap(directory: pathsByRecordIndex.isEmpty ? nil : dir, pathsByRecordIndex: pathsByRecordIndex)
     }
@@ -388,18 +650,18 @@ final class MOBIParser: BookParser {
                 with: path,
                 options: .regularExpression
             )
+            result = result.replacingOccurrences(
+                of: "recindex\\s*=\\s*([\"'])0*\(offset)\\1",
+                with: "src=$1\(path)$1",
+                options: .regularExpression
+            )
         }
 
         return result
     }
 
     private func isImage(_ data: Data) -> Bool {
-        guard data.count >= 4 else { return false }
-        let prefix = [UInt8](data.prefix(4))
-        if prefix[0] == 0xFF && prefix[1] == 0xD8 { return true }
-        if prefix[0] == 0x89 && prefix[1] == 0x50 && prefix[2] == 0x4E && prefix[3] == 0x47 { return true }
-        if prefix[0] == 0x47 && prefix[1] == 0x49 && prefix[2] == 0x46 && prefix[3] == 0x38 { return true }
-        return false
+        imageExtension(for: data) != nil
     }
 
     private func imageExtension(for data: Data) -> String? {
@@ -408,6 +670,10 @@ final class MOBIParser: BookParser {
         if prefix[0] == 0xFF && prefix[1] == 0xD8 { return "jpg" }
         if prefix[0] == 0x89 && prefix[1] == 0x50 { return "png" }
         if prefix[0] == 0x47 && prefix[1] == 0x49 { return "gif" }
+        if prefix[0] == 0x42 && prefix[1] == 0x4D { return "bmp" }
+        if data.count >= 12,
+           String(data: data.prefix(4), encoding: .ascii) == "RIFF",
+           String(data: data.subdata(in: 8..<12), encoding: .ascii) == "WEBP" { return "webp" }
         return nil
     }
 
@@ -451,86 +717,28 @@ final class MOBIParser: BookParser {
                 toc: reconstructed.toc,
                 resourceDirectory: resourceMap.directory,
                 renderer: .html,
-                pdfDocument: nil
+                pdfDocument: nil,
+                resourceOwner: resourceMap.directory.map { ParsedResourceDirectoryOwner(directory: $0) }
             )
         } catch {
-            BookLog.mobi.notice("parseKF8: native rawML reconstruction failed, trying legacy ZIP scan: \(error.localizedDescription, privacy: .public)")
+            let detail = Self.bookParseDetail(from: error)
+            BookLog.mobi.error("parseKF8: native rawML reconstruction failed: \(detail, privacy: .public)")
+            throw BookParseError.corruptedFile(detail: "KF8 rawML 重建失败：\(detail)")
         }
-
-        guard let kf8Data = extractKF8Data(from: pdb) else {
-            BookLog.mobi.error("parseKF8: cannot extract KF8 ZIP data from \(pdb.records.count) records")
-            throw BookParseError.corruptedFile(detail: "无法提取 KF8 ZIP 数据")
-        }
-        BookLog.mobi.info("parseKF8: extracted ZIP \(kf8Data.count) bytes")
-
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ReaderMOBI-KF8")
-        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        let tmpEPUB = tmpDir.appendingPathComponent("\(UUID().uuidString).epub")
-        try kf8Data.write(to: tmpEPUB)
-        defer { try? FileManager.default.removeItem(at: tmpEPUB) }
-        BookLog.mobi.info("parseKF8: wrote temp epub \(tmpEPUB.lastPathComponent, privacy: .public)")
-
-        let epubParser = EPUBParser()
-        let metadata = try epubParser.parse(fileAt: tmpEPUB)
-        BookLog.mobi.info("parseKF8: epub parsed chapters=\(metadata.chapters.count)")
-
-        let chapters = metadata.chapters.map { ch in
-            ParsedChapter(title: ch.title, bodyHTML: ch.htmlContent, sourcePath: ch.fileName)
-        }
-        let toc = metadata.tocEntries.map { entry in
-            ParsedTOCEntry(title: entry.title, chapterIndex: entry.chapterIndex)
-        }
-
-        let cover = coverImage(from: pdb, header: header)
-
-        return ParsedBook(
-            title: header.title,
-            author: header.author,
-            coverImage: cover,
-            chapters: chapters,
-            toc: toc,
-            resourceDirectory: metadata.resourceDirectory,
-            renderer: .html,
-            pdfDocument: nil
-        )
     }
 
-    /// 从 PalmDB 记录中提取 KF8 ZIP 数据
-    private func extractKF8Data(from pdb: PalmDatabase) -> Data? {
-        let pkSignature: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
-
-        // 纯 KF8: records[1]+ 是 ZIP
-        // 混合 MOBI+KF8: records[1] 是 BOUNDARY，records[2]+ 是 ZIP
-        let startRecord: Int
-        if pdb.records.count > 1 {
-            let rec1 = pdb.records[1]
-            if rec1.count >= 20,
-               let id = String(data: rec1.subdata(in: 16..<20), encoding: .ascii),
-               id == "BOUNDARY" {
-                startRecord = 2
-                BookLog.mobi.info("extractKF8: hybrid MOBI+KF8, ZIP starts at record 2")
-            } else {
-                startRecord = 1
-                BookLog.mobi.info("extractKF8: pure KF8, ZIP starts at record 1")
-            }
-        } else {
-            BookLog.mobi.error("extractKF8: pdb has only \(pdb.records.count) record(s)")
-            return nil
+    private static func bookParseDetail(from error: Error) -> String {
+        switch error {
+        case BookParseError.corruptedFile(let detail),
+             BookParseError.unsupportedFormat(let detail):
+            return detail
+        default:
+            return error.localizedDescription
         }
+    }
 
-        var combined = Data()
-        for i in startRecord..<pdb.records.count {
-            combined.append(pdb.records[i])
-        }
-        BookLog.mobi.info("extractKF8: combined \(combined.count) bytes, scanning for PK signature")
-
-        guard let pkRange = combined.range(of: Data(pkSignature)) else {
-            BookLog.mobi.error("extractKF8: PK signature not found in \(combined.count) bytes")
-            return nil
-        }
-        BookLog.mobi.info("extractKF8: PK signature at offset \(pkRange.lowerBound)")
-        return combined.subdata(in: pkRange.lowerBound..<combined.count)
+    private static func resourceRootDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("ReaderMOBI", isDirectory: true)
     }
 
     /// 解码 MOBI 文本记录。MOBI 文件实际编码不一定与 header 声明一致：
@@ -913,7 +1121,7 @@ func stripTrailingExtraData(from record: Data, flags: UInt32) -> Data {
     var end = record.count
 
     if flags != 0 {
-        for bit in 0..<32 where (flags & (1 << UInt32(bit))) != 0 {
+        for bit in stride(from: 31, through: 0, by: -1) where (flags & (1 << UInt32(bit))) != 0 {
             guard end > 0 else { return Data() }
             if bit == 0 {
                 let overlapLength = Int(record[end - 1] & 0x03)
@@ -944,20 +1152,33 @@ func extraDataStart(in record: Data, endingAt initialEnd: Int) -> Int? {
     var end = initialEnd
     var size = 0
     var shift = 0
+    var sizeByteCount = 0
 
     repeat {
         guard end > 0, shift <= 28 else { return nil }
         end -= 1
+        sizeByteCount += 1
         let byte = record[end]
         size |= Int(byte & 0x7F) << shift
         shift += 7
-        if byte & 0x80 == 0 {
+        if byte & 0x80 != 0 {
             break
         }
     } while true
 
-    guard size >= 0, size <= end else { return nil }
-    return end - size
+    let payloadSize = size - sizeByteCount
+    guard payloadSize >= 0, payloadSize <= end else { return nil }
+    return end - payloadSize
+}
+
+func truncateToTextLengthIfOnlyPadding(_ data: Data, textLength: Int) -> Data {
+    guard textLength > 0, textLength < data.count else { return data }
+    let suffix = data.dropFirst(textLength)
+    let looksLikePadding = suffix.allSatisfy { byte in
+        byte == 0x00 || byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == 0xFF
+    }
+    guard looksLikePadding else { return data }
+    return truncateToUTF8Boundary(data, maxLength: textLength)
 }
 
 /// 将截断位置对齐到 UTF-8 字符边界，避免切断多字节字符产生 U+FFFD

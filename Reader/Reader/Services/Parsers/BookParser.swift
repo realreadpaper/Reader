@@ -12,6 +12,43 @@ struct ParsedBook {
     let resourceDirectory: URL?
     let renderer: RendererKind
     let pdfDocument: PDFDocument?
+    let resourceOwner: ParsedResourceDirectoryOwner?
+
+    init(
+        title: String,
+        author: String?,
+        coverImage: Data?,
+        chapters: [ParsedChapter],
+        toc: [ParsedTOCEntry],
+        resourceDirectory: URL?,
+        renderer: RendererKind,
+        pdfDocument: PDFDocument?,
+        resourceOwner: ParsedResourceDirectoryOwner? = nil
+    ) {
+        self.title = title
+        self.author = author
+        self.coverImage = coverImage
+        self.chapters = chapters
+        self.toc = toc
+        self.resourceDirectory = resourceDirectory
+        self.renderer = renderer
+        self.pdfDocument = pdfDocument
+        self.resourceOwner = resourceOwner
+    }
+}
+
+final class ParsedResourceDirectoryOwner {
+    let directory: URL
+    private let fileManager: FileManager
+
+    init(directory: URL, fileManager: FileManager = .default) {
+        self.directory = directory
+        self.fileManager = fileManager
+    }
+
+    deinit {
+        try? fileManager.removeItem(at: directory)
+    }
 }
 
 struct ParsedChapter {

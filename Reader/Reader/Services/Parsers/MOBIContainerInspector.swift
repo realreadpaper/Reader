@@ -19,6 +19,10 @@ struct MOBIContainerInfo: Equatable {
     let textRecordRange: ClosedRange<Int>?
     let extraDataFlags: UInt32
     let firstImageRecord: Int?
+    let lastImageRecord: Int?
+    let firstNonBookIndex: Int?
+    let huffRecordIndex: Int?
+    let huffRecordCount: Int?
     let drmStatus: MOBIDRMStatus
     let exthRecords: [MOBIEXTHEntry]
     let exthTitle: String?
@@ -41,6 +45,8 @@ struct MOBIContainerInfo: Equatable {
             "extraFlags=0x\(String(extraDataFlags, radix: 16))",
             "drm=\(drmStatus)",
             "firstImage=\(firstImageRecord.map(String.init) ?? "nil")",
+            "lastImage=\(lastImageRecord.map(String.init) ?? "nil")",
+            "huff=\(huffRecordIndex.map(String.init) ?? "nil")/\(huffRecordCount.map(String.init) ?? "nil")",
             "kf8Boundary=\(kf8BoundaryRecordIndex.map(String.init) ?? "nil")",
             "markers=\(markerText.isEmpty ? "none" : markerText)"
         ].joined(separator: " ")
@@ -51,8 +57,10 @@ struct MOBIEXTHEntry: Equatable {
     let type: UInt32
     let data: Data
 
-    var utf8String: String? {
+    var decodedString: String? {
         String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .gb18030)
+            ?? String(data: data, encoding: .isoLatin1)
     }
 
     var uint32Value: UInt32? {
@@ -100,16 +108,22 @@ enum MOBIContainerInspector {
         let mobiType = record0.readUInt32BE(at: 24)
         let textEncodingRaw = record0.readUInt32BE(at: 28)
         let mobiVersion = record0.readUInt32BE(at: 36)
-        let extraDataFlags = record0.count >= 244 ? record0.readUInt32BE(at: 240) : 0
-        let firstImageRaw = record0.count >= 128 ? Int(record0.readUInt32BE(at: 124)) : 0
-        let firstImageRecord = firstImageRaw > 0 ? firstImageRaw : nil
+        let extraDataFlags: UInt32 = mobiHeaderLength >= MOBIHeaderLayout.extraDataFlagsMinimumHeaderLength
+            && record0.count >= MOBIHeaderLayout.extraDataFlagsOffset + 2
+            ? UInt32(record0.readUInt16BE(at: MOBIHeaderLayout.extraDataFlagsOffset))
+            : 0
+        let firstImageRecord = recordIndexUInt32(record0, at: MOBIHeaderLayout.firstImageRecordOffset)
+        let lastImageRecord = recordIndexUInt16(record0, at: MOBIHeaderLayout.lastImageRecordOffset)
+        let firstNonBookIndex = recordIndexUInt32(record0, at: MOBIHeaderLayout.firstNonBookIndexOffset)
+        let huffRecordIndex = recordIndexUInt32(record0, at: MOBIHeaderLayout.huffRecordIndexOffset)
+        let huffRecordCount = recordCountUInt32(record0, at: MOBIHeaderLayout.huffRecordCountOffset)
         let exthRecords = readEXTHEntries(record0: record0, mobiHeaderLength: mobiHeaderLength)
         let coverOffset = exthRecords.first(where: { $0.type == 201 })?.uint32Value.map(Int.init)
         let coverRecordIndex: Int? = {
             guard let firstImageRecord, let coverOffset else { return nil }
             return firstImageRecord + coverOffset
         }()
-        let kf8BoundaryRecordIndex = findKF8Boundary(in: pdb.records)
+        let kf8BoundaryRecordIndex = MOBIRecordScanner.findKF8Boundary(in: pdb.records)
         let variant: MOBIVariant = {
             if mobiVersion == 8 || kf8BoundaryRecordIndex != nil {
                 return .kf8
@@ -143,10 +157,14 @@ enum MOBIContainerInspector {
             textRecordRange: textRecordRange,
             extraDataFlags: extraDataFlags,
             firstImageRecord: firstImageRecord,
+            lastImageRecord: lastImageRecord,
+            firstNonBookIndex: firstNonBookIndex,
+            huffRecordIndex: huffRecordIndex,
+            huffRecordCount: huffRecordCount,
             drmStatus: drmStatus,
             exthRecords: exthRecords,
-            exthTitle: exthRecords.first(where: { $0.type == 503 })?.utf8String,
-            exthAuthor: exthRecords.first(where: { $0.type == 100 })?.utf8String,
+            exthTitle: exthRecords.first(where: { $0.type == 503 })?.decodedString,
+            exthAuthor: exthRecords.first(where: { $0.type == 100 })?.decodedString,
             coverRecordIndex: coverRecordIndex,
             hasKF8Boundary: kf8BoundaryRecordIndex != nil,
             kf8BoundaryRecordIndex: kf8BoundaryRecordIndex,
@@ -193,16 +211,6 @@ enum MOBIContainerInspector {
         return entries
     }
 
-    private static func findKF8Boundary(in records: [Data]) -> Int? {
-        for (index, record) in records.enumerated() where record.count >= 20 {
-            if String(data: record.readBytes(at: 16, length: 4), encoding: .ascii) == "BOUN" ||
-                String(data: record.readBytes(at: 16, length: 8), encoding: .ascii) == "BOUNDARY" {
-                return index
-            }
-        }
-        return nil
-    }
-
     private static func findMarkers(in records: [Data]) -> [MOBIRecordMarker] {
         let known = Set(["FDST", "INDX", "FLIS", "FCIS", "RESC", "SRCS", "DATP"])
         var markers: [MOBIRecordMarker] = []
@@ -213,5 +221,26 @@ enum MOBIContainerInspector {
             markers.append(MOBIRecordMarker(kind: kind, recordIndex: index))
         }
         return markers
+    }
+
+    private static func recordIndexUInt32(_ data: Data, at offset: Int) -> Int? {
+        guard offset + 4 <= data.count else { return nil }
+        let value = data.readUInt32BE(at: offset)
+        guard value != 0, value != 0xFFFFFFFF else { return nil }
+        return Int(value)
+    }
+
+    private static func recordCountUInt32(_ data: Data, at offset: Int) -> Int? {
+        guard offset + 4 <= data.count else { return nil }
+        let value = data.readUInt32BE(at: offset)
+        guard value > 0, value != 0xFFFFFFFF else { return nil }
+        return Int(value)
+    }
+
+    private static func recordIndexUInt16(_ data: Data, at offset: Int) -> Int? {
+        guard offset + 2 <= data.count else { return nil }
+        let value = data.readUInt16BE(at: offset)
+        guard value != 0, value != 0xFFFF else { return nil }
+        return Int(value)
     }
 }

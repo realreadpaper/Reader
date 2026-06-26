@@ -36,6 +36,58 @@ final class MOBIHeaderTests: XCTestCase {
         XCTAssertEqual(header.compression, .huff)
     }
 
+    func testReadSpecOffsetMetadataFields() throws {
+        var record0 = makeRecord0(
+            compression: 17480,
+            mobiVersion: 6,
+            exthRecords: []
+        )
+        record0.replaceSubrange(108..<112, with: UInt32(7).beData)
+        record0.replaceSubrange(112..<116, with: UInt32(9).beData)
+        record0.replaceSubrange(116..<120, with: UInt32(3).beData)
+        record0.replaceSubrange(186..<188, with: UInt16(12).beData)
+        record0.replaceSubrange(240..<242, with: UInt16(0x1234).beData)
+        record0.replaceSubrange(242..<244, with: UInt16(0x0002).beData)
+
+        let header = try MOBIHeader.read(record0: record0)
+
+        XCTAssertEqual(header.firstImageRecord, 7)
+        XCTAssertEqual(header.huffRecordIndex, 9)
+        XCTAssertEqual(header.huffRecordCount, 3)
+        XCTAssertEqual(header.lastImageRecord, 12)
+        XCTAssertEqual(header.extraDataFlags, 0x0002)
+    }
+
+    func testReadUsesFirstNonBookIndexToLimitTextRecordsWhenPresent() throws {
+        var record0 = makeRecord0(
+            compression: 2,
+            mobiVersion: 6,
+            exthRecords: []
+        )
+        record0.replaceSubrange(8..<10, with: UInt16(5).beData)
+        record0.replaceSubrange(80..<84, with: UInt32(3).beData)
+
+        let header = try MOBIHeader.read(record0: record0)
+
+        XCTAssertEqual(header.firstNonBookIndex, 3)
+        XCTAssertEqual(header.lastTextRecord, 2)
+    }
+
+    func testReadDoesNotExtendClassicTextRangePastPalmDOCCount() throws {
+        var record0 = makeRecord0(
+            compression: 2,
+            mobiVersion: 6,
+            exthRecords: []
+        )
+        record0.replaceSubrange(8..<10, with: UInt16(605).beData)
+        record0.replaceSubrange(80..<84, with: UInt32(607).beData)
+
+        let header = try MOBIHeader.read(record0: record0)
+
+        XCTAssertEqual(header.firstNonBookIndex, 607)
+        XCTAssertEqual(header.lastTextRecord, 605)
+    }
+
     private func makeRecord0(
         compression: UInt16,
         mobiVersion: UInt32,
@@ -99,5 +151,19 @@ final class MOBIHeaderTests: XCTestCase {
             data.replaceSubrange(headerLenPos..<(headerLenPos + 4), with: Data(bytes: &be, count: 4))
         }
         return data
+    }
+}
+
+private extension UInt16 {
+    var beData: Data {
+        var value = self.bigEndian
+        return Data(bytes: &value, count: 2)
+    }
+}
+
+private extension UInt32 {
+    var beData: Data {
+        var value = self.bigEndian
+        return Data(bytes: &value, count: 4)
     }
 }

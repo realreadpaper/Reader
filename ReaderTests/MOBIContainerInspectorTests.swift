@@ -95,6 +95,53 @@ final class MOBIContainerInspectorTests: XCTestCase {
         XCTAssertTrue(info.markers.contains(MOBIRecordMarker(kind: "RESC", recordIndex: 4)))
     }
 
+    func testInspectIgnoresBOUNPrefixBecauseKF8BoundaryMarkerIsBOUNDARY() throws {
+        var fakeBoundary = Data(repeating: 0, count: 16)
+        fakeBoundary.append("BOUN".data(using: .ascii)!)
+
+        let pdb = try PalmDBFixtureBuilder(
+            mobiVersion: 6,
+            compression: 1,
+            textEncoding: 65001,
+            textRecordCount: 1,
+            encryptionType: 0,
+            extraDataFlags: 0,
+            firstImageRecord: 0,
+            exthRecords: [],
+            extraRecords: [fakeBoundary]
+        ).build()
+
+        let info = try MOBIContainerInspector.inspect(pdb: pdb)
+
+        XCTAssertEqual(info.variant, .classicMOBI)
+        XCTAssertFalse(info.hasKF8Boundary)
+        XCTAssertNil(info.kf8BoundaryRecordIndex)
+    }
+
+    func testInspectDecodesGB18030EXTHStrings() throws {
+        let title = try XCTUnwrap("中文标题".data(using: .gb18030))
+        let author = try XCTUnwrap("中文作者".data(using: .gb18030))
+        let pdb = try PalmDBFixtureBuilder(
+            mobiVersion: 6,
+            compression: 2,
+            textEncoding: 1252,
+            textRecordCount: 1,
+            encryptionType: 0,
+            extraDataFlags: 0,
+            firstImageRecord: 0,
+            exthRecords: [
+                (100, author),
+                (503, title)
+            ],
+            extraRecords: [Data("<html>body</html>".utf8)]
+        ).build()
+
+        let info = try MOBIContainerInspector.inspect(pdb: pdb)
+
+        XCTAssertEqual(info.exthTitle, "中文标题")
+        XCTAssertEqual(info.exthAuthor, "中文作者")
+    }
+
     func testInspectThrowsForMissingRecord0() {
         let pdb = PalmDatabase(name: "Empty", type: "BOOK", creator: "MOBI", records: [])
 
@@ -146,11 +193,11 @@ private struct PalmDBFixtureBuilder {
         data.append(UInt32(1).beData)
         data.append(mobiVersion.beData)
 
-        appendPadding(toRecord0Offset: 124, data: &data)
+        appendPadding(toRecord0Offset: 108, data: &data)
         data.append(firstImageRecord.beData)
 
-        appendPadding(toRecord0Offset: 244, data: &data)
-        data.replaceSubrange(240..<244, with: extraDataFlags.beData)
+        appendPadding(toRecord0Offset: 242, data: &data)
+        data.append(UInt16(extraDataFlags).beData)
 
         appendPadding(toRecord0Offset: 248, data: &data)
 

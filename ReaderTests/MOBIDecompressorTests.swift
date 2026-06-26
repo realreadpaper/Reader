@@ -14,6 +14,19 @@ final class MOBIDecompressorTests: XCTestCase {
         XCTAssertEqual(output, Data([0xC3, 0xA9, 0x00, 0x01, 0x08]))
     }
 
+    func testPalmDocThrowsWhenLiteralRunIsTruncated() {
+        XCTAssertThrowsError(
+            try MOBIDecompressor.decompress(Data([0x05, 0xC3, 0xA9]), compression: .palmDoc)
+        ) { error in
+            guard case BookParseError.corruptedFile(let detail) = error else {
+                XCTFail("错误类型不对：\(error)")
+                return
+            }
+            XCTAssertTrue(detail.contains("PalmDOC"))
+            XCTAssertTrue(detail.contains("literal"))
+        }
+    }
+
     func testPalmDocBackReferenceCopiesFromPreviousOutput() throws {
         let input = Data([0x61, 0x62, 0x63, 0x20, 0x80, 0x20])
         let output = try MOBIDecompressor.decompress(input, compression: .palmDoc)

@@ -297,10 +297,11 @@ final class SearchPanelLayoutTests: XCTestCase {
         XCTAssertEqual(parsed.renderer, .markdown)
         XCTAssertEqual(parsed.chapters.count, 1)
         XCTAssertEqual(parsed.toc.count, 1)
-        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("# Reader 阅读器测试文档"))
-        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("## 基本语法"))
-        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("`这是行内代码`"))
-        XCTAssertFalse(parsed.chapters[0].bodyHTML.contains("<p>"))
+        XCTAssertTrue(parsed.chapters[0].rawMarkdown?.contains("# Reader 阅读器测试文档") == true)
+        XCTAssertTrue(parsed.chapters[0].rawMarkdown?.contains("## 基本语法") == true)
+        XCTAssertTrue(parsed.chapters[0].rawMarkdown?.contains("`这是行内代码`") == true)
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("<h1>Reader 阅读器测试文档</h1>"))
+        XCTAssertTrue(parsed.chapters[0].bodyHTML.contains("<p>这是一份用于测试 <strong>Markdown 渲染</strong>功能的示例文件。</p>"))
     }
 
     @MainActor

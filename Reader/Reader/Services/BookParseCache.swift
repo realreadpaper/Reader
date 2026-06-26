@@ -25,7 +25,7 @@ struct CachedTOCEntry: Codable {
 
 final class BookParseCache {
     static let shared = BookParseCache()
-    private static let cacheFormatVersion = "text-md-rawmd-v5"
+    private static let cacheFormatVersion = "text-md-rawmd-v6-mobi"
 
     private let cacheDir: URL
     private let fileManager = FileManager.default
@@ -88,6 +88,7 @@ final class BookParseCache {
 
     func save(_ parsed: ParsedBook, for url: URL) {
         guard parsed.renderer != .pdfKit,
+              parsed.resourceOwner == nil,
               let key = cacheKey(for: url) else { return }
 
         let cached = CachedBook(

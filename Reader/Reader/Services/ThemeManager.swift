@@ -109,10 +109,10 @@ extension Color {
     }
 
     var hex: String {
-        guard let components = NSColor(self).cgColor.components else { return "#000000" }
-        let r = Int(components[0] * 255)
-        let g = Int(components[1] * 255)
-        let b = Int(components.count > 2 ? components[2] * 255 : 0)
+        guard let color = NSColor(self).usingColorSpace(.sRGB) else { return "#000000" }
+        let r = Int((color.redComponent * 255).rounded())
+        let g = Int((color.greenComponent * 255).rounded())
+        let b = Int((color.blueComponent * 255).rounded())
         return String(format: "#%02X%02X%02X", r, g, b)
     }
 }

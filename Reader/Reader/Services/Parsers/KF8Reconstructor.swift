@@ -37,7 +37,8 @@ struct KF8Reconstructor {
     func reconstruct() throws -> ParsedBook {
         let rawML = try readRawML()
         let flows = try splitFlows(rawML: rawML)
-        let chapters = flows.enumerated().compactMap { index, flow -> ParsedChapter? in
+        let chapterFlows = splitIndexedChapters(from: flows)
+        let chapters = chapterFlows.enumerated().compactMap { index, flow -> ParsedChapter? in
             let diagnostic = MOBIParser.decodeHTMLWithDiagnostic(flow, declaredEncoding: .utf8)
             let html = diagnostic.html.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !html.isEmpty else {
@@ -74,14 +75,52 @@ struct KF8Reconstructor {
 
         var raw = Data()
         for index in first...last {
-            let decompressed = try MOBIDecompressor.decompress(pdb.records[index], compression: header.compression)
-            let part = stripTrailingExtraData(from: decompressed, flags: header.extraDataFlags)
+            let payload = stripTrailingExtraData(from: pdb.records[index], flags: header.extraDataFlags & ~1)
+            let decompressed = try MOBIDecompressor.decompress(payload, compression: header.compression)
+            let part = stripTrailingExtraData(from: decompressed, flags: header.extraDataFlags & 1)
             raw.append(part)
         }
         if header.textLength > 0, raw.count > header.textLength {
-            raw = truncateToUTF8Boundary(raw, maxLength: header.textLength)
+            let fdstEnd = (try? fdstMaxEnd()) ?? 0
+            let safeLength = max(header.textLength, fdstEnd)
+            if raw.count > safeLength {
+                raw = truncateToTextLengthIfOnlyPadding(raw, textLength: safeLength)
+            }
         }
         return raw
+    }
+
+    private func splitIndexedChapters(from flows: [Data]) -> [Data] {
+        guard let firstFlow = flows.first else { return flows }
+        let offsets = indexedChapterOffsets(in: firstFlow)
+        guard offsets.count > 1 else { return flows }
+
+        var sorted = Array(Set(offsets))
+            .filter { $0 >= 0 && $0 < firstFlow.count }
+            .sorted()
+        if sorted.first != 0 {
+            sorted.insert(0, at: 0)
+        }
+        guard sorted.count > 1 else { return flows }
+
+        var chapters: [Data] = []
+        for (idx, start) in sorted.enumerated() {
+            let end = idx + 1 < sorted.count ? sorted[idx + 1] : firstFlow.count
+            guard start < end else { continue }
+            chapters.append(firstFlow.subdata(in: start..<end))
+        }
+        return chapters.isEmpty ? flows : chapters
+    }
+
+    private func indexedChapterOffsets(in firstFlow: Data) -> [Int] {
+        for record in pdb.records {
+            let offsets = KF8IndexReader(data: record).chapterOffsets()
+                .filter { $0 >= 0 && $0 < firstFlow.count }
+            if offsets.count > 1 {
+                return offsets
+            }
+        }
+        return []
     }
 
     private func splitFlows(rawML: Data) throws -> [Data] {
@@ -96,6 +135,13 @@ struct KF8Reconstructor {
             }
             return rawML.subdata(in: section.start..<section.end)
         }
+    }
+
+    private func fdstMaxEnd() throws -> Int {
+        guard let fdst = pdb.records.first(where: { $0.starts(withASCII: "FDST") }) else {
+            return 0
+        }
+        return try Self.parseFDST(fdst).map(\.end).max() ?? 0
     }
 
     private func coverImage() -> Data? {

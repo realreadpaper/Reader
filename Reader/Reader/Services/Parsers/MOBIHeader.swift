@@ -40,6 +40,10 @@ struct MOBIHeader {
     let lastTextRecord: Int
     let textLength: Int
     let firstImageRecord: Int?
+    let lastImageRecord: Int?
+    let firstNonBookIndex: Int?
+    let huffRecordIndex: Int?
+    let huffRecordCount: Int?
     let textEncodingRaw: UInt32
     let extraDataFlags: UInt32
     let drmOffset: UInt32
@@ -99,33 +103,39 @@ struct MOBIHeader {
         let mobiVersion = record0.readUInt32BE(at: 36)
         let textEncodingRaw = record0.readUInt32BE(at: 28)
         let textLength = Int(record0.readUInt32BE(at: 4))
-        let extraDataFlags = record0.count >= 244 ? record0.readUInt32BE(at: 240) : 0
+        let extraDataFlags: UInt32 = {
+            guard mobiHeaderLength >= MOBIHeaderLayout.extraDataFlagsMinimumHeaderLength,
+                  record0.count >= MOBIHeaderLayout.extraDataFlagsOffset + 2 else { return 0 }
+            return UInt32(record0.readUInt16BE(at: MOBIHeaderLayout.extraDataFlagsOffset))
+        }()
         let drmOffset: UInt32 = record0.count >= 172 ? record0.readUInt32BE(at: 168) : 0xFFFFFFFF
         // PalmDOC 头 offset 8-10 是 text record count（不含 record0 头记录）
         // 这是经典 MOBI 文本范围的权威来源，比 MOBI header 内部的字段更可靠
         let palmDocTextRecordCount = Int(record0.readUInt16BE(at: 8))
         BookLog.mobi.info("read: record0Size=\(record0.count) id=\(id, privacy: .public) headerLen=\(mobiHeaderLength) version=\(mobiVersion) compression=\(compressionRaw) textEncoding=\(textEncodingRaw) palmDocTextRecordCount=\(palmDocTextRecordCount)")
 
-        // 经典 MOBI 的文本记录范围：record 0 是头，records 1..palmDocTextRecordCount 是文本
-        // 注意：MOBI header 偏移 24/28 在不同实现里定义不一致（generator index / first non-book index），
-        // 真实文件常为 0xFFFFFFFF，不能作为文本范围使用
+        let firstImageRecord = recordIndexUInt32(record0, at: MOBIHeaderLayout.firstImageRecordOffset)
+        let lastImageRecord = recordIndexUInt16(record0, at: MOBIHeaderLayout.lastImageRecordOffset)
+        let firstNonBookIndex = recordIndexUInt32(record0, at: MOBIHeaderLayout.firstNonBookIndexOffset)
+        let huffRecordIndex = recordIndexUInt32(record0, at: MOBIHeaderLayout.huffRecordIndexOffset)
+        let huffRecordCount = recordCountUInt32(record0, at: MOBIHeaderLayout.huffRecordCountOffset)
+
+        // 经典 MOBI 的文本记录范围：record 0 是头。firstNonBookIndex 指向第一个非正文记录，
+        // 有效时比 PalmDOC recordCount 更能防止把图片/索引记录吞入 rawML。
         let firstTextRecord = 1
         let lastTextRecord: Int = {
-            // PalmDOC recordCount 为 0 或异常时退回到 record0 之外的所有记录
+            if let firstNonBookIndex, firstNonBookIndex > firstTextRecord {
+                let lastBeforeNonBook = firstNonBookIndex - 1
+                if palmDocTextRecordCount > 0 {
+                    return min(palmDocTextRecordCount, lastBeforeNonBook)
+                }
+                return lastBeforeNonBook
+            }
             if palmDocTextRecordCount > 0 {
                 return palmDocTextRecordCount
             }
             return 1
         }()
-
-        // firstImageRecord: MOBI header offset 108 (record0 offset 124)
-        // 部分老文件该字段缺失或为 0，此时返回 nil
-        let firstImageRecord: Int
-        if record0.count >= 128 {
-            firstImageRecord = Int(record0.readUInt32BE(at: 124))
-        } else {
-            firstImageRecord = 0
-        }
 
         let variant: MOBIVariant
         if mobiVersion == 8 {
@@ -169,7 +179,7 @@ struct MOBIHeader {
 
         let finalTitle = title ?? "Untitled"
         let coverRecordIndex: Int? = {
-            guard let cover = coverOffset, firstImageRecord > 0 else { return nil }
+            guard let cover = coverOffset, let firstImageRecord else { return nil }
             return firstImageRecord + cover
         }()
 
@@ -179,7 +189,11 @@ struct MOBIHeader {
             firstTextRecord: firstTextRecord,
             lastTextRecord: lastTextRecord,
             textLength: textLength,
-            firstImageRecord: firstImageRecord > 0 ? firstImageRecord : nil,
+            firstImageRecord: firstImageRecord,
+            lastImageRecord: lastImageRecord,
+            firstNonBookIndex: firstNonBookIndex,
+            huffRecordIndex: huffRecordIndex,
+            huffRecordCount: huffRecordCount,
             textEncodingRaw: textEncodingRaw,
             extraDataFlags: extraDataFlags,
             drmOffset: drmOffset,
@@ -201,29 +215,40 @@ struct MOBIHeader {
            record0.readUInt32BE(at: 36) == 8 {
             return base
         }
-        // 再看 records[1] 是否是 BOUNDARY
-        if pdb.records.count > 1 {
-            let rec1 = pdb.records[1]
-            if rec1.count >= 20 {
-                let id = String(data: rec1.subdata(in: 16..<20), encoding: .ascii) ?? ""
-                if id == "BOUNDARY" {
-                    let textLast = base.lastTextRecord > 1 ? base.lastTextRecord : max(1, pdb.records.count - 2)
-                    return MOBIHeader(
-                        variant: .kf8,
-                        compression: base.compression,
-                        firstTextRecord: 1,
-                        lastTextRecord: textLast,
-                        textLength: base.textLength,
-                        firstImageRecord: base.firstImageRecord,
-                        textEncodingRaw: base.textEncodingRaw,
-                        extraDataFlags: base.extraDataFlags,
-                        drmOffset: base.drmOffset,
-                        title: base.title,
-                        author: base.author,
-                        coverRecordIndex: base.coverRecordIndex
-                    )
+
+        if let boundaryIndex = MOBIRecordScanner.findKF8Boundary(in: pdb.records) {
+            let kf8HeaderIndex = boundaryIndex + 1
+            if kf8HeaderIndex < pdb.records.count,
+               let kf8Header = try? read(record0: pdb.records[kf8HeaderIndex]),
+               kf8Header.variant == .kf8 {
+                let shiftedHeader = kf8Header.offsetTextRecords(by: kf8HeaderIndex, fallbackMetadata: base)
+                if let markerIndex = findFirstMarkerIndex(in: pdb.records, startingAt: shiftedHeader.firstTextRecord) {
+                    return shiftedHeader.extendingTextRecords(through: max(shiftedHeader.lastTextRecord, markerIndex - 1))
                 }
+                return shiftedHeader
             }
+
+            let textStart = min(boundaryIndex + 1, max(1, pdb.records.count - 1))
+            let textEnd = findFirstMarkerIndex(in: pdb.records, startingAt: textStart).map { max(textStart, $0 - 1) }
+                ?? max(textStart, pdb.records.count - 1)
+            return MOBIHeader(
+                variant: .kf8,
+                compression: base.compression,
+                firstTextRecord: textStart,
+                lastTextRecord: textEnd,
+                textLength: base.textLength,
+                firstImageRecord: base.firstImageRecord,
+                lastImageRecord: base.lastImageRecord,
+                firstNonBookIndex: base.firstNonBookIndex,
+                huffRecordIndex: base.huffRecordIndex,
+                huffRecordCount: base.huffRecordCount,
+                textEncodingRaw: base.textEncodingRaw,
+                extraDataFlags: base.extraDataFlags,
+                drmOffset: base.drmOffset,
+                title: base.title,
+                author: base.author,
+                coverRecordIndex: base.coverRecordIndex
+            )
         }
 
         // 经典 MOBI: 用 PalmDB 实际记录数对 lastTextRecord 做兜底
@@ -237,6 +262,10 @@ struct MOBIHeader {
                 lastTextRecord: max(1, pdb.records.count - 1),
                 textLength: base.textLength,
                 firstImageRecord: base.firstImageRecord,
+                lastImageRecord: base.lastImageRecord,
+                firstNonBookIndex: base.firstNonBookIndex,
+                huffRecordIndex: base.huffRecordIndex,
+                huffRecordCount: base.huffRecordCount,
                 textEncodingRaw: base.textEncodingRaw,
                 extraDataFlags: base.extraDataFlags,
                 drmOffset: base.drmOffset,
@@ -246,5 +275,101 @@ struct MOBIHeader {
             )
         }
         return base
+    }
+
+    private func offsetTextRecords(by recordOffset: Int, fallbackMetadata: MOBIHeader) -> MOBIHeader {
+        MOBIHeader(
+            variant: .kf8,
+            compression: compression,
+            firstTextRecord: recordOffset + firstTextRecord,
+            lastTextRecord: recordOffset + lastTextRecord,
+            textLength: textLength,
+            firstImageRecord: firstImageRecord ?? fallbackMetadata.firstImageRecord,
+            lastImageRecord: lastImageRecord ?? fallbackMetadata.lastImageRecord,
+            firstNonBookIndex: firstNonBookIndex ?? fallbackMetadata.firstNonBookIndex,
+            huffRecordIndex: huffRecordIndex ?? fallbackMetadata.huffRecordIndex,
+            huffRecordCount: huffRecordCount ?? fallbackMetadata.huffRecordCount,
+            textEncodingRaw: textEncodingRaw,
+            extraDataFlags: extraDataFlags,
+            drmOffset: drmOffset,
+            title: title == "Untitled" ? fallbackMetadata.title : title,
+            author: author ?? fallbackMetadata.author,
+            coverRecordIndex: coverRecordIndex ?? fallbackMetadata.coverRecordIndex
+        )
+    }
+
+    private func extendingTextRecords(through lastRecord: Int) -> MOBIHeader {
+        MOBIHeader(
+            variant: variant,
+            compression: compression,
+            firstTextRecord: firstTextRecord,
+            lastTextRecord: max(lastTextRecord, lastRecord),
+            textLength: textLength,
+            firstImageRecord: firstImageRecord,
+            lastImageRecord: lastImageRecord,
+            firstNonBookIndex: firstNonBookIndex,
+            huffRecordIndex: huffRecordIndex,
+            huffRecordCount: huffRecordCount,
+            textEncodingRaw: textEncodingRaw,
+            extraDataFlags: extraDataFlags,
+            drmOffset: drmOffset,
+            title: title,
+            author: author,
+            coverRecordIndex: coverRecordIndex
+        )
+    }
+
+    private static func findFirstMarkerIndex(in records: [Data], startingAt start: Int) -> Int? {
+        let markers = Set(["FDST", "INDX", "FLIS", "FCIS", "RESC", "SRCS", "DATP"])
+        for index in start..<records.count {
+            guard let marker = String(data: records[index].prefix(4), encoding: .ascii),
+                  markers.contains(marker) else {
+                continue
+            }
+            return index
+        }
+        return nil
+    }
+
+    private static func recordIndexUInt32(_ data: Data, at offset: Int) -> Int? {
+        guard offset + 4 <= data.count else { return nil }
+        let value = data.readUInt32BE(at: offset)
+        guard value != 0, value != 0xFFFFFFFF else { return nil }
+        return Int(value)
+    }
+
+    private static func recordCountUInt32(_ data: Data, at offset: Int) -> Int? {
+        guard offset + 4 <= data.count else { return nil }
+        let value = data.readUInt32BE(at: offset)
+        guard value > 0, value != 0xFFFFFFFF else { return nil }
+        return Int(value)
+    }
+
+    private static func recordIndexUInt16(_ data: Data, at offset: Int) -> Int? {
+        guard offset + 2 <= data.count else { return nil }
+        let value = data.readUInt16BE(at: offset)
+        guard value != 0, value != 0xFFFF else { return nil }
+        return Int(value)
+    }
+}
+
+enum MOBIHeaderLayout {
+    static let firstNonBookIndexOffset = 0x50
+    static let firstImageRecordOffset = 0x6C
+    static let huffRecordIndexOffset = 0x70
+    static let huffRecordCountOffset = 0x74
+    static let lastImageRecordOffset = 0xBA
+    static let extraDataFlagsMinimumHeaderLength = 0xE4
+    static let extraDataFlagsOffset = 0xF2
+}
+
+enum MOBIRecordScanner {
+    static func findKF8Boundary(in records: [Data]) -> Int? {
+        for (index, record) in records.enumerated().dropFirst() where record.count >= 24 {
+            if String(data: record.readBytes(at: 16, length: 8), encoding: .ascii) == "BOUNDARY" {
+                return index
+            }
+        }
+        return nil
     }
 }
