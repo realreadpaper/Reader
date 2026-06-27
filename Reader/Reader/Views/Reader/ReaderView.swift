@@ -45,7 +45,7 @@ struct ReaderView: View {
                 HStack(spacing: 0) {
                     if coordinator.showTOC {
                         EmbeddedTOCPanel(
-                            chapters: coordinator.tocEntries.map { ($0.title, $0.chapterIndex) },
+                            chapters: coordinator.displayTOCEntries.map { ($0.title, $0.chapterIndex) },
                             currentIndex: book.fileType == .pdf
                                 ? coordinator.pdfCurrentPage - 1
                                 : coordinator.currentChapter,

@@ -311,16 +311,55 @@ final class MOBIParserClassicTests: XCTestCase {
         BookParseCache.shared.invalidate(for: url)
 
         var parsed: ParsedBook? = try await BookParserRegistry.parseWithCache(fileAt: url, type: .mobi)
-        let transientDirectory = try XCTUnwrap(parsed?.resourceDirectory)
+        let returnedDirectory = try XCTUnwrap(parsed?.resourceDirectory)
         parsed = nil
 
         let cached = try XCTUnwrap(BookParseCache.shared.load(from: url))
         let persistentDirectory = try XCTUnwrap(cached.resourceDirectory)
         let cachedImageURL = persistentDirectory.appendingPathComponent("images/record-2.png")
 
-        XCTAssertNotEqual(persistentDirectory.path, transientDirectory.path)
+        XCTAssertEqual(returnedDirectory.path, persistentDirectory.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: returnedDirectory.appendingPathComponent("images/record-2.png").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: cachedImageURL.path))
         XCTAssertTrue(cached.chapters[0].bodyHTML.contains("images/record-2.png"))
+    }
+
+    func testParseWithCacheUsesSavedBookOnSecondOpen() async throws {
+        let url = try makeClassicMOBIFixture(html: "<html><body><p>缓存命中</p></body></html>")
+        defer {
+            BookParseCache.shared.invalidate(for: url)
+            try? FileManager.default.removeItem(at: url)
+        }
+        BookParseCache.shared.invalidate(for: url)
+
+        let parser = CountingParser(title: "Cached Once")
+
+        let first = try await BookParserRegistry.parseWithCache(fileAt: url, type: .mobi, parser: parser)
+        let second = try await BookParserRegistry.parseWithCache(fileAt: url, type: .mobi, parser: parser)
+
+        XCTAssertEqual(first.title, "Cached Once")
+        XCTAssertEqual(second.title, "Cached Once")
+        let parseCount = await parser.parseCount
+        XCTAssertEqual(parseCount, 1)
+    }
+
+    func testParseWithCacheCoalescesConcurrentFirstOpen() async throws {
+        let url = try makeClassicMOBIFixture(html: "<html><body><p>并发缓存</p></body></html>")
+        defer {
+            BookParseCache.shared.invalidate(for: url)
+            try? FileManager.default.removeItem(at: url)
+        }
+        BookParseCache.shared.invalidate(for: url)
+
+        let parser = CountingParser(title: "Shared First Parse", delayNanoseconds: 200_000_000)
+
+        async let first = BookParserRegistry.parseWithCache(fileAt: url, type: .mobi, parser: parser)
+        async let second = BookParserRegistry.parseWithCache(fileAt: url, type: .mobi, parser: parser)
+        let parsed = try await [first, second]
+
+        XCTAssertEqual(parsed.map { $0.title }, ["Shared First Parse", "Shared First Parse"])
+        let parseCount = await parser.parseCount
+        XCTAssertEqual(parseCount, 1)
     }
 
     func testParseClassicMOBIHonorsLastImageRecordWhenWritingResources() async throws {
@@ -696,6 +735,34 @@ final class MOBIParserClassicTests: XCTestCase {
 
     private func namedTOCCount(in toc: [ParsedTOCEntry]) -> Int {
         toc.filter { !$0.title.matchesGeneratedPageTitle }.count
+    }
+
+    private actor CountingParser: BookParser {
+        private(set) var parseCount = 0
+        let title: String
+        let delayNanoseconds: UInt64
+
+        init(title: String, delayNanoseconds: UInt64 = 0) {
+            self.title = title
+            self.delayNanoseconds = delayNanoseconds
+        }
+
+        func parse(fileAt url: URL) async throws -> ParsedBook {
+            parseCount += 1
+            if delayNanoseconds > 0 {
+                try await Task.sleep(nanoseconds: delayNanoseconds)
+            }
+            return ParsedBook(
+                title: title,
+                author: nil,
+                coverImage: nil,
+                chapters: [ParsedChapter(title: "Chapter", bodyHTML: "<p>\(title)</p>", sourcePath: "chapter-0.html")],
+                toc: [ParsedTOCEntry(title: "Chapter", chapterIndex: 0)],
+                resourceDirectory: nil,
+                renderer: .html,
+                pdfDocument: nil
+            )
+        }
     }
 }
 

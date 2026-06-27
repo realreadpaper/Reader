@@ -75,6 +75,8 @@ protocol BookParser {
 }
 
 enum BookParserRegistry {
+    private static let flightStore = BookParseFlightStore()
+
     static func parser(for type: FileType) -> BookParser {
         switch type {
         case .epub: return EPUBParser()
@@ -87,18 +89,67 @@ enum BookParserRegistry {
     }
 
     static func parseWithCache(fileAt url: URL, type: FileType) async throws -> ParsedBook {
+        try await parseWithCache(fileAt: url, type: type, parser: parser(for: type))
+    }
+
+    static func parseWithCache(fileAt url: URL, type: FileType, parser: BookParser) async throws -> ParsedBook {
+        if type == .pdf {
+            return try await parser.parse(fileAt: url)
+        }
+
         if type != .pdf, let cached = BookParseCache.shared.load(from: url) {
+            BookLog.parsing.info("parseWithCache: cache hit path=\(url.lastPathComponent, privacy: .public)")
             return cached
         }
 
-        let parser = parser(for: type)
-        let parsed = try await parser.parse(fileAt: url)
-
-        if type != .pdf {
+        guard let key = BookParseCache.shared.cacheKey(for: url) else {
+            BookLog.parsing.info("parseWithCache: cache unavailable, parsing path=\(url.lastPathComponent, privacy: .public)")
+            let parsed = try await parser.parse(fileAt: url)
             BookParseCache.shared.save(parsed, for: url)
+            return BookParseCache.shared.load(from: url) ?? parsed
         }
 
-        return parsed
+        return try await flightStore.value(for: key) {
+            if let cached = BookParseCache.shared.load(from: url) {
+                BookLog.parsing.info("parseWithCache: cache filled while waiting path=\(url.lastPathComponent, privacy: .public)")
+                return cached
+            }
+
+            BookLog.parsing.info("parseWithCache: cache miss, parsing path=\(url.lastPathComponent, privacy: .public)")
+            let parsed = try await parser.parse(fileAt: url)
+            BookParseCache.shared.save(parsed, for: url)
+
+            if let cached = BookParseCache.shared.load(from: url) {
+                BookLog.parsing.info("parseWithCache: saved parse cache path=\(url.lastPathComponent, privacy: .public)")
+                return cached
+            }
+
+            return parsed
+        }
+    }
+}
+
+private actor BookParseFlightStore {
+    private var tasks: [String: Task<ParsedBook, Error>] = [:]
+
+    func value(for key: String, operation: @escaping () async throws -> ParsedBook) async throws -> ParsedBook {
+        if let task = tasks[key] {
+            return try await task.value
+        }
+
+        let task = Task {
+            try await operation()
+        }
+        tasks[key] = task
+
+        do {
+            let value = try await task.value
+            tasks[key] = nil
+            return value
+        } catch {
+            tasks[key] = nil
+            throw error
+        }
     }
 }
 

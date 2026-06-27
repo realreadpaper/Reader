@@ -344,6 +344,111 @@ final class SearchPanelLayoutTests: XCTestCase {
         XCTAssertFalse(coordinator.shouldShowBlockingLoadingOverlay)
     }
 
+    @MainActor
+    func testCurrentTitleUsesTOCChapterIndexInsteadOfTOCArrayOffset() async throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let book = Book(title: "MOBI", filePath: "/tmp/book.mobi", fileType: .mobi)
+        let coordinator = RenderCoordinator(
+            book: book,
+            storageService: StorageService(modelContext: container.mainContext)
+        )
+        coordinator.epubMetadata = EPUBMetadata(
+            title: "Book",
+            author: nil,
+            chapters: (0..<8).map {
+                EPUBChapter(
+                    title: "第 \($0 + 1) 页",
+                    htmlContent: "<p>\($0)</p>",
+                    fileName: "chapter-\($0).xhtml",
+                    spineIndex: $0
+                )
+            },
+            tocEntries: [
+                EPUBTOCEntry(title: "《活着就为改变世界》", chapterIndex: 0),
+                EPUBTOCEntry(title: "扉页", chapterIndex: 1),
+                EPUBTOCEntry(title: "目录", chapterIndex: 2),
+                EPUBTOCEntry(title: "引语", chapterIndex: 3),
+                EPUBTOCEntry(title: "序", chapterIndex: 4),
+                EPUBTOCEntry(title: "[5]", chapterIndex: 30),
+                EPUBTOCEntry(title: "改变世界的梦想者", chapterIndex: 5)
+            ],
+            resourceDirectory: FileManager.default.temporaryDirectory
+        )
+        coordinator.currentChapter = 5
+
+        XCTAssertEqual(coordinator.currentTitle, "改变世界的梦想者")
+    }
+
+    @MainActor
+    func testDisplayTOCEntriesIgnoreBrokenGeneratedAndOutOfRangeItems() async throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let book = Book(title: "MOBI", filePath: "/tmp/book.mobi", fileType: .mobi)
+        let coordinator = RenderCoordinator(
+            book: book,
+            storageService: StorageService(modelContext: container.mainContext)
+        )
+        coordinator.epubMetadata = EPUBMetadata(
+            title: "Book",
+            author: nil,
+            chapters: [
+                EPUBChapter(title: "第 1 页", htmlContent: "<p>0</p>", fileName: "0.xhtml", spineIndex: 0),
+                EPUBChapter(title: "第 2 页", htmlContent: "<p>1</p>", fileName: "1.xhtml", spineIndex: 1),
+                EPUBChapter(title: "第 3 页", htmlContent: "<p>2</p>", fileName: "2.xhtml", spineIndex: 2)
+            ],
+            tocEntries: [
+                EPUBTOCEntry(title: "[5]", chapterIndex: 30),
+                EPUBTOCEntry(title: "第 2 页", chapterIndex: 1),
+                EPUBTOCEntry(title: "正文", chapterIndex: 1),
+                EPUBTOCEntry(title: "第二章", chapterIndex: 2)
+            ],
+            resourceDirectory: FileManager.default.temporaryDirectory
+        )
+
+        XCTAssertEqual(
+            coordinator.displayTOCEntries.map { "\($0.chapterIndex):\($0.title)" },
+            ["1:正文", "2:第二章"]
+        )
+    }
+
+    @MainActor
+    func testLoadSkipsParserWhenContentAlreadyAvailable() async throws {
+        let container = try ModelContainer(
+            for: Book.self, Bookmark.self, Highlight.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let book = Book(title: "MOBI", filePath: "/tmp/missing-book.mobi", fileType: .mobi)
+        let coordinator = RenderCoordinator(
+            book: book,
+            storageService: StorageService(modelContext: container.mainContext)
+        )
+        coordinator.epubMetadata = EPUBMetadata(
+            title: "Book",
+            author: nil,
+            chapters: [
+                EPUBChapter(
+                    title: "Chapter",
+                    htmlContent: "<p>已加载内容</p>",
+                    fileName: "chapter.xhtml",
+                    spineIndex: 0
+                )
+            ],
+            tocEntries: [],
+            resourceDirectory: FileManager.default.temporaryDirectory
+        )
+
+        await coordinator.load()
+
+        XCTAssertNil(coordinator.loadError)
+        XCTAssertFalse(coordinator.isLoading)
+        XCTAssertEqual(coordinator.chapters.count, 1)
+    }
+
     func testEPUBSearchNavigationScriptCanLocateQueryWithinChapter() {
         XCTAssertTrue(EPUBScripts.bootScript.contains("ReaderGoToSearchResult"))
         XCTAssertTrue(EPUBScripts.bootScript.contains("reader-search-hit"))

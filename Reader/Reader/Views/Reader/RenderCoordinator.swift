@@ -41,6 +41,15 @@ final class RenderCoordinator {
     }
 
     func load() async {
+        if hasLoadedContent {
+            BookLog.render.info("load: skip, content already available path=\(self.book.filePath, privacy: .public)")
+            return
+        }
+        if isLoading {
+            BookLog.render.info("load: skip, load already in progress path=\(self.book.filePath, privacy: .public)")
+            return
+        }
+
         isLoading = true
         defer { isLoading = false }
 
@@ -61,6 +70,15 @@ final class RenderCoordinator {
         } catch {
             BookLog.render.error("load: failed fileType=\(fileType.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             self.loadError = error.localizedDescription
+        }
+    }
+
+    private var hasLoadedContent: Bool {
+        switch book.fileType {
+        case .pdf:
+            return pdfDocument != nil
+        case .epub, .mobi, .azw3, .azw, .txt, .md:
+            return !chapters.isEmpty
         }
     }
 
@@ -194,6 +212,37 @@ final class RenderCoordinator {
         return epubMetadata?.tocEntries ?? []
     }
 
+    var displayTOCEntries: [EPUBTOCEntry] {
+        if book.fileType == .pdf {
+            return tocEntries
+        }
+
+        let maxChapter = chapters.count
+        guard maxChapter > 0 else { return [] }
+
+        var seen = Set<Int>()
+        let validEntries = tocEntries.filter { entry in
+            let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard entry.chapterIndex >= 0,
+                  entry.chapterIndex < maxChapter,
+                  !title.isGeneratedNavigationTitle,
+                  !seen.contains(entry.chapterIndex)
+            else {
+                return false
+            }
+            seen.insert(entry.chapterIndex)
+            return true
+        }
+
+        if !validEntries.isEmpty {
+            return validEntries
+        }
+
+        return chapters.enumerated().map { index, chapter in
+            EPUBTOCEntry(title: chapter.title, chapterIndex: index)
+        }
+    }
+
     var totalChapters: Int {
         switch book.fileType {
         case .epub, .mobi, .azw3, .azw, .txt, .md:
@@ -216,14 +265,30 @@ final class RenderCoordinator {
         if book.fileType == .pdf {
             return book.title
         }
-        let entries = epubMetadata?.tocEntries ?? []
-        if currentChapter >= 0 && currentChapter < entries.count {
-            return entries[currentChapter].title
+        if let title = bestTOCTitle(for: currentChapter) {
+            return title
         }
         if !chapters.isEmpty && currentChapter < chapters.count {
             return chapters[currentChapter].title
         }
         return book.title
+    }
+
+    private func bestTOCTitle(for chapterIndex: Int) -> String? {
+        let maxChapter = chapters.count
+        guard chapterIndex >= 0, maxChapter > 0 else { return nil }
+
+        return tocEntries
+            .filter { entry in
+                entry.chapterIndex >= 0
+                    && entry.chapterIndex < maxChapter
+                    && entry.chapterIndex <= chapterIndex
+                    && !entry.title.isGeneratedNavigationTitle
+            }
+            .max { lhs, rhs in
+                lhs.chapterIndex < rhs.chapterIndex
+            }?
+            .title
     }
 
     private var searchTask: Task<Void, Never>?
@@ -439,6 +504,22 @@ final class RenderCoordinator {
         progressSaveTimer?.invalidate()
         progressSaveTimer = nil
         storageService.updateProgress(book, progress: progress)
+    }
+}
+
+private extension String {
+    var isGeneratedNavigationTitle: Bool {
+        let title = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return true }
+
+        let generatedPatterns = [
+            #"^\[\d+\]$"#,
+            #"^［\d+］$"#,
+            #"^第\s*\d+\s*页$"#
+        ]
+        return generatedPatterns.contains { pattern in
+            title.range(of: pattern, options: .regularExpression) != nil
+        }
     }
 }
 
